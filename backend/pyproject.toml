@@ -1,0 +1,29 @@
+[project]
+name = "biteradar-backend"
+version = "1.0.0"
+description = "BiteRadar AI-powered restaurant & dish recommendation backend"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.1",
+    "sqlalchemy>=2.0.36",
+    "psycopg2-binary>=2.9.10",
+    "googlemaps>=4.10.0",
+    "google-genai>=1.0.0",
+    "requests>=2.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28.0",
+    "pytest>=8.3.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "httpx>=0.28.0",
+    "pytest>=8.3.0",
+]
