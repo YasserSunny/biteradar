@@ -295,6 +295,8 @@ Rank the array in order of best recommendation first.
                         name=r_data["name"],
                         rating=r_data["rating"],
                         total_reviews=r_data["total_reviews"],
+                        price_level=db_rec.price_level,
+                        summary=db_rec.summary,
                         reason=db_rec.reason,
                         helpful_quote=db_rec.helpful_quote,
                         lat=r_data["lat"],
