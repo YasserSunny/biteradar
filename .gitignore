@@ -1,0 +1,24 @@
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/.vercel/
+
+# Backend
+backend/venv/
+backend/env/
+backend/__pycache__/
+backend/*.pyc
+backend/.pytest_cache/
+backend/.env
+backend/.env.local
+
+# OS
+.DS_Store
+*.swp
