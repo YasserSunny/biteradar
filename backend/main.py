@@ -165,10 +165,19 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     
                     if y_res.get("businesses"):
                         yelp_id = y_res["businesses"][0]["id"]
-                        rev_url = f"https://api.yelp.com/v3/businesses/{yelp_id}/reviews"
-                        yr_res = requests.get(rev_url, headers=headers).json()
                         
-                        for r in yr_res.get("reviews", []):
+                        # Use GraphQL for reviews since Developer Beta was required
+                        graphql_url = "https://api.yelp.com/v3/graphql"
+                        gql_headers = {
+                            "Authorization": f"Bearer {YELP_API_KEY}",
+                            "Content-Type": "application/graphql"
+                        }
+                        query = '{ business(id: "' + yelp_id + '") { reviews { text rating user { name } } } }'
+                        
+                        yr_res = requests.post(graphql_url, headers=gql_headers, data=query).json()
+                        
+                        business_data = yr_res.get("data", {}).get("business") or {}
+                        for r in business_data.get("reviews", []):
                             text = r.get("text")
                             if text:
                                 all_review_texts.append(text)
@@ -178,7 +187,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                                         place_id=place_id,
                                         source="yelp",
                                         author_name=r.get("user", {}).get("name", "Yelp User"),
-                                        rating=float(r.get("rating", 0)),
+                                        rating=float(r.get("rating", 0) or 0),
                                         text=text
                                     ))
                 except Exception as e:
