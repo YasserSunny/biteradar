@@ -12,6 +12,30 @@ class SearchQuery(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     recommendations = relationship("Recommendation", back_populates="query")
+    history_entries = relationship("SearchHistory", back_populates="query")
+
+
+class SearchHistory(Base):
+    __tablename__ = "search_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    query_id = Column(Integer, ForeignKey("search_queries.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    query = relationship("SearchQuery", back_populates="history_entries")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, unique=True, index=True)
+    name = Column(String)
+    preferred_cuisines = Column(String, default="[]")  # JSON string
+    favorite_dishes = Column(String, default="[]")     # JSON string
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class Recommendation(Base):

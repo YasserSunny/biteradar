@@ -3,8 +3,23 @@
 import { useState, useEffect } from "react";
 import { APIProvider, Map, Marker } from '@vis.gl/react-google-maps';
 import { Autocomplete } from "../components/Autocomplete";
+import { ProfileModal } from "../components/ProfileModal";
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+
+interface UserProfileData {
+  name: string;
+  preferred_cuisines: string[];
+  favorite_dishes: string[];
+}
+
+interface SearchHistoryItem {
+  id: number;
+  query_id: number;
+  dish_name: string;
+  location: string;
+  created_at: string;
+}
 
 export default function Home() {
   const [dishName, setDishName] = useState("");
@@ -14,13 +29,53 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Profile & History State
+  const [profile, setProfile] = useState<UserProfileData | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isFirstTimeProfile, setIsFirstTimeProfile] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
+
   // Default center (NYC)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
+
+  const fetchProfile = async (uid: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/profile/${uid}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+      } else if (res.status === 404) {
+        setIsFirstTimeProfile(true);
+        setIsProfileModalOpen(true);
+      }
+    } catch (err) {
+      console.error("Error fetching profile:", err);
+    }
+  };
+
+  const fetchHistory = async (uid: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/history/${uid}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchHistory(data);
+      }
+    } catch (err) {
+      console.error("Error fetching history:", err);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
+      if (currentUser) {
+        fetchProfile(currentUser.uid);
+        fetchHistory(currentUser.uid);
+      } else {
+        setProfile(null);
+        setSearchHistory([]);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -38,6 +93,8 @@ export default function Home() {
     try {
       await signOut(auth);
       setResults([]);
+      setProfile(null);
+      setSearchHistory([]);
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -57,7 +114,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ dish_name: dishName, location }),
+        body: JSON.stringify({ dish_name: dishName, location, user_id: user?.uid }),
       });
       const data = await response.json();
       setResults(data);
@@ -65,9 +122,46 @@ export default function Home() {
       if (data.length > 0) {
         setMapCenter({ lat: data[0].lat, lng: data[0].lng });
       }
+
+      if (user) {
+        fetchHistory(user.uid);
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
       alert("Something went wrong! Check the console.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHistoryClick = async (item: SearchHistoryItem) => {
+    setDishName(item.dish_name);
+    setLocation(item.location);
+    setLoading(true);
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/queries/${item.query_id}/recommendations`);
+      if (response.ok) {
+        const data = await response.json();
+        setResults(data);
+        if (data.length > 0) {
+          setMapCenter({ lat: data[0].lat, lng: data[0].lng });
+        }
+      } else {
+        // Fallback to searching if cached query not found
+        const fallbackRes = await fetch("http://localhost:8000/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dish_name: item.dish_name, location: item.location, user_id: user?.uid }),
+        });
+        const data = await fallbackRes.json();
+        setResults(data);
+        if (data.length > 0) {
+          setMapCenter({ lat: data[0].lat, lng: data[0].lng });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading past search:", error);
     } finally {
       setLoading(false);
     }
@@ -124,9 +218,20 @@ export default function Home() {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center">
         {/* Header / Search Bar */}
         <header className="w-full bg-white shadow-sm p-6 flex flex-col items-center relative">
-          <div className="absolute right-6 top-6 flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user.email}</span>
-            <button onClick={handleLogout} className="text-sm text-red-600 hover:underline">Logout</button>
+          <div className="absolute right-6 top-6 flex items-center gap-3">
+            <button
+              onClick={() => {
+                setIsFirstTimeProfile(false);
+                setIsProfileModalOpen(true);
+              }}
+              className="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 py-1.5 px-3 rounded-full border border-gray-200 transition flex items-center gap-1.5"
+              title="Edit food preferences"
+            >
+              <span>👤</span>
+              <span>{profile?.name || user.email}</span>
+              <span className="text-gray-400 text-[10px]">⚙️</span>
+            </button>
+            <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium">Logout</button>
           </div>
           
           <h1 className="text-3xl font-bold text-orange-600 mb-6">biteradar</h1>
@@ -152,6 +257,26 @@ export default function Home() {
               {loading ? "Searching..." : "Search"}
             </button>
           </form>
+
+          {/* Recent Search Queries (Last 5) */}
+          {searchHistory.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 w-full max-w-3xl">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent Searches:</span>
+              {searchHistory.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleHistoryClick(item)}
+                  disabled={loading}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-white hover:bg-orange-50 text-gray-800 hover:text-orange-700 text-xs font-medium rounded-full border border-gray-200 hover:border-orange-300 shadow-sm transition cursor-pointer"
+                  title={`Click to view results for ${item.dish_name} in ${item.location}`}
+                >
+                  <span className="text-orange-500">🕒</span>
+                  <span className="font-semibold">{item.dish_name}</span>
+                  <span className="text-gray-500">in {item.location}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </header>
 
         {/* Main Content Area */}
@@ -234,6 +359,24 @@ export default function Home() {
             ))}
           </div>
         </main>
+
+        {/* Profile Onboarding & Preferences Modal */}
+        {user && (
+          <ProfileModal
+            isOpen={isProfileModalOpen}
+            userId={user.uid}
+            defaultName={profile?.name || user.displayName || ""}
+            initialCuisines={profile?.preferred_cuisines || []}
+            initialDishes={profile?.favorite_dishes || []}
+            isFirstTime={isFirstTimeProfile}
+            onSave={(newProfile) => {
+              setProfile(newProfile);
+              setIsProfileModalOpen(false);
+              setIsFirstTimeProfile(false);
+            }}
+            onClose={() => setIsProfileModalOpen(false)}
+          />
+        )}
       </div>
     </APIProvider>
   );
