@@ -35,9 +35,78 @@ export default function Home() {
   const [isFirstTimeProfile, setIsFirstTimeProfile] = useState(false);
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [searchStep, setSearchStep] = useState<number | null>(null);
+  const [mobileTab, setMobileTab] = useState<'list' | 'map'>('list');
+  const [locationDetected, setLocationDetected] = useState(false);
 
-  // Default center (NYC)
+  // Default center (NYC initially, overwritten immediately by geolocation)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
+
+  // Auto-detect user current location (GPS + IP fallback)
+  useEffect(() => {
+    if (locationDetected) return;
+
+    const detectLocation = () => {
+      if (typeof window !== "undefined" && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const userLat = pos.coords.latitude;
+            const userLng = pos.coords.longitude;
+            setMapCenter({ lat: userLat, lng: userLng });
+            setLocationDetected(true);
+
+            // Reverse geocode to get city name for search input if empty
+            fetch(
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${userLat}&longitude=${userLng}&localityLanguage=en`
+            )
+              .then((res) => res.json())
+              .then((data) => {
+                const city = data.city || data.locality || "";
+                const state = data.principalSubdivisionCode || data.countryCode || "";
+                if (city) {
+                  setLocation(state ? `${city}, ${state}` : city);
+                }
+              })
+              .catch(() => {});
+          },
+          (err) => {
+            console.warn("Browser GPS blocked or unavailable, using IP approximation:", err);
+            fetch("https://ipapi.co/json/")
+              .then((res) => res.json())
+              .then((ipData) => {
+                if (ipData.latitude && ipData.longitude) {
+                  setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+                }
+                const city = ipData.city || "";
+                const region = ipData.region_code || ipData.region || "";
+                if (city) {
+                  setLocation(region ? `${city}, ${region}` : city);
+                }
+                setLocationDetected(true);
+              })
+              .catch(() => {});
+          },
+          { timeout: 8000 }
+        );
+      } else {
+        fetch("https://ipapi.co/json/")
+          .then((res) => res.json())
+          .then((ipData) => {
+            if (ipData.latitude && ipData.longitude) {
+              setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+            }
+            const city = ipData.city || "";
+            const region = ipData.region_code || ipData.region || "";
+            if (city) {
+              setLocation(region ? `${city}, ${region}` : city);
+            }
+            setLocationDetected(true);
+          })
+          .catch(() => {});
+      }
+    };
+
+    detectLocation();
+  }, [locationDetected]);
 
   const fetchProfile = async (uid: string) => {
     try {
@@ -308,12 +377,57 @@ export default function Home() {
               ))}
             </div>
           )}
+
+          {/* 1-Click Quick Crave Favorite Dishes from Profile */}
+          {profile?.favorite_dishes && profile.favorite_dishes.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 w-full max-w-3xl">
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Your Favorites:</span>
+              {profile.favorite_dishes.map((dish) => (
+                <button
+                  key={dish}
+                  type="button"
+                  onClick={() => setDishName(dish)}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-medium rounded-full border border-amber-200 shadow-xs transition cursor-pointer"
+                  title={`Click to set craving to ${dish}`}
+                >
+                  <span>✨</span>
+                  <span>{dish}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </header>
 
+        {/* Mobile View Toggle Switch (Small screens only) */}
+        <div className="flex md:hidden justify-center w-full px-4 pt-4">
+          <div className="bg-gray-200 p-1 rounded-xl flex gap-1 shadow-inner w-full max-w-xs">
+            <button
+              onClick={() => setMobileTab('list')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                mobileTab === 'list' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <span>📋</span>
+              <span>List {results.length > 0 ? `(${results.length})` : ''}</span>
+            </button>
+            <button
+              onClick={() => setMobileTab('map')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                mobileTab === 'map' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <span>🗺️</span>
+              <span>Map</span>
+            </button>
+          </div>
+        </div>
+
         {/* Main Content Area */}
-        <main className="flex-1 w-full max-w-7xl p-6 flex gap-6">
+        <main className="flex-1 w-full max-w-7xl p-4 md:p-6 flex flex-col md:flex-row gap-6">
           {/* Map Area */}
-          <div className="flex-1 rounded-xl overflow-hidden shadow-inner min-h-[600px] border border-gray-300 relative">
+          <div className={`flex-1 rounded-xl overflow-hidden shadow-inner min-h-[450px] md:min-h-[600px] border border-gray-300 relative ${
+            mobileTab === 'map' ? 'block' : 'hidden md:block'
+          }`}>
             {!apiKey && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-200 bg-opacity-90">
                 <p className="text-gray-700 text-lg font-medium p-4 text-center">
@@ -341,7 +455,9 @@ export default function Home() {
           </div>
 
           {/* Results List */}
-          <div className="w-1/3 flex flex-col gap-4 overflow-y-auto max-h-[600px]">
+          <div className={`w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto max-h-[600px] ${
+            mobileTab === 'list' ? 'block' : 'hidden md:flex'
+          }`}>
             <h2 className="text-xl font-bold text-gray-800 mb-2">Results</h2>
             {results.length === 0 && !loading && (
               <p className="text-gray-500">Enter a dish and location to find the best spots!</p>
@@ -436,9 +552,9 @@ export default function Home() {
             )}
             {results.map((r, i) => (
               <div key={r.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-bold text-lg text-gray-900">{i + 1}. {r.name}</h3>
-                  <div className="flex gap-2">
+                <div className="flex justify-between items-start gap-2">
+                  <h3 className="font-bold text-lg text-gray-900 leading-tight">{i + 1}. {r.name}</h3>
+                  <div className="flex flex-wrap gap-1.5 items-center justify-end shrink-0">
                     <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
                       ★ {r.rating} ({r.total_reviews} reviews)
                     </span>
@@ -447,10 +563,20 @@ export default function Home() {
                         {r.price_level}
                       </span>
                     )}
+                    {r.open_now !== undefined && r.open_now !== null && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                        r.open_now 
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                          : "bg-rose-50 text-rose-700 border border-rose-200"
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${r.open_now ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                        {r.open_now ? "Open Now" : "Closed"}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {r.summary && (
-                  <p className="text-gray-500 text-xs mb-2">{r.summary}</p>
+                  <p className="text-gray-500 text-xs mb-1">{r.summary}</p>
                 )}
                 <p className="text-gray-600 text-sm"><strong>AI Reason:</strong> {r.reason}</p>
                 {r.helpful_quote && (
@@ -459,20 +585,32 @@ export default function Home() {
                   </p>
                 )}
                 
-                {/* Real Feedback Buttons */}
-                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
-                  <button 
-                    onClick={() => submitFeedback(r.id, true)}
-                    className={`text-sm font-medium transition ${r.helpful === true ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                {/* Feedback Buttons & Directions */}
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => submitFeedback(r.id, true)}
+                      className={`text-sm font-medium transition ${r.helpful === true ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                    >
+                      👍 Helpful
+                    </button>
+                    <button 
+                      onClick={() => submitFeedback(r.id, false)}
+                      className={`text-sm font-medium transition ${r.helpful === false ? 'text-red-600' : 'text-gray-400 hover:text-red-600'}`}
+                    >
+                      👎 Not Helpful
+                    </button>
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(r.name)}&destination_place_id=${r.place_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition"
+                    title="Get directions on Google Maps"
                   >
-                    👍 Helpful
-                  </button>
-                  <button 
-                    onClick={() => submitFeedback(r.id, false)}
-                    className={`text-sm font-medium transition ${r.helpful === false ? 'text-red-600' : 'text-gray-400 hover:text-red-600'}`}
-                  >
-                    👎 Not Helpful
-                  </button>
+                    <span>📍</span>
+                    <span>Directions</span>
+                  </a>
                 </div>
               </div>
             ))}

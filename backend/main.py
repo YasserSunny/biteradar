@@ -71,6 +71,7 @@ class RestaurantResult(BaseModel):
     total_reviews: int
     price_level: Optional[str] = None
     summary: Optional[str] = None
+    open_now: Optional[bool] = None
     reason: str
     helpful_quote: Optional[str] = None
     lat: float
@@ -109,6 +110,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     total_reviews=r.total_reviews,
                     price_level=r.price_level,
                     summary=r.summary,
+                    open_now=r.open_now,
                     reason=r.reason,
                     helpful_quote=r.helpful_quote,
                     lat=r.lat,
@@ -156,7 +158,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             place_id = place['place_id']
             
             # --- GOOGLE ---
-            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry', 'price_level', 'editorial_summary'])
+            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry', 'price_level', 'editorial_summary', 'opening_hours'])
             res = details.get('result', {})
             
             name = res.get('name', 'Unknown')
@@ -164,6 +166,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             lng = res.get('geometry', {}).get('location', {}).get('lng', 0)
             rating = res.get('rating', 0.0)
             total_reviews = res.get('user_ratings_total', 0)
+            open_now = res.get('opening_hours', {}).get('open_now')
             
             g_price = res.get('price_level')
             price_str = "$" * g_price if g_price else ""
@@ -255,6 +258,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 "total_reviews": total_reviews,
                 "price_level": price_str,
                 "summary": summary_text,
+                "open_now": open_now,
                 "lat": lat,
                 "lng": lng,
                 "reviews": all_review_texts
@@ -308,6 +312,7 @@ Rank the array in order of best recommendation first.
                     total_reviews=r_data["total_reviews"],
                     price_level=r_data.get("price_level"),
                     summary=r_data.get("summary"),
+                    open_now=r_data.get("open_now"),
                     reason=item.get("reason", "Highly recommended based on reviews."),
                     helpful_quote=item.get("helpful_quote"),
                     lat=r_data["lat"],
@@ -326,6 +331,7 @@ Rank the array in order of best recommendation first.
                         total_reviews=r_data["total_reviews"],
                         price_level=db_rec.price_level,
                         summary=db_rec.summary,
+                        open_now=db_rec.open_now,
                         reason=db_rec.reason,
                         helpful_quote=db_rec.helpful_quote,
                         lat=r_data["lat"],
@@ -433,6 +439,7 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
             total_reviews=r.total_reviews,
             price_level=r.price_level,
             summary=r.summary,
+            open_now=r.open_now,
             reason=r.reason,
             helpful_quote=r.helpful_quote,
             lat=r.lat,
