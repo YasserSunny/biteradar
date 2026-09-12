@@ -194,10 +194,20 @@ export default function Home() {
               <div key={r.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-lg text-gray-900">{i + 1}. {r.name}</h3>
-                  <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
-                    ★ {r.rating} ({r.total_reviews} reviews)
-                  </span>
+                  <div className="flex gap-2">
+                    <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
+                      ★ {r.rating} ({r.total_reviews} reviews)
+                    </span>
+                    {r.price_level && (
+                      <span className="bg-gray-100 text-gray-800 text-xs font-bold px-2 py-1 rounded">
+                        {r.price_level}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {r.summary && (
+                  <p className="text-gray-500 text-xs mb-2">{r.summary}</p>
+                )}
                 <p className="text-gray-600 text-sm"><strong>AI Reason:</strong> {r.reason}</p>
                 {r.helpful_quote && (
                   <p className="text-orange-700 text-sm italic bg-orange-50 p-2 rounded border border-orange-100">

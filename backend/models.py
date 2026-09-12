@@ -23,6 +23,8 @@ class Recommendation(Base):
     name = Column(String)
     rating = Column(Float)
     total_reviews = Column(Integer, default=0)
+    price_level = Column(String, nullable=True)
+    summary = Column(String, nullable=True)
     reason = Column(String)
     helpful_quote = Column(String, nullable=True)
     lat = Column(Float)

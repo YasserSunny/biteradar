@@ -49,6 +49,8 @@ class RestaurantResult(BaseModel):
     name: str
     rating: float
     total_reviews: int
+    price_level: Optional[str] = None
+    summary: Optional[str] = None
     reason: str
     helpful_quote: Optional[str] = None
     lat: float
@@ -81,6 +83,8 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     name=r.name,
                     rating=r.rating,
                     total_reviews=r.total_reviews,
+                    price_level=r.price_level,
+                    summary=r.summary,
                     reason=r.reason,
                     helpful_quote=r.helpful_quote,
                     lat=r.lat,
@@ -123,7 +127,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             place_id = place['place_id']
             
             # --- GOOGLE ---
-            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry'])
+            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry', 'price_level', 'editorial_summary'])
             res = details.get('result', {})
             
             name = res.get('name', 'Unknown')
@@ -131,6 +135,10 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             lng = res.get('geometry', {}).get('location', {}).get('lng', 0)
             rating = res.get('rating', 0.0)
             total_reviews = res.get('user_ratings_total', 0)
+            
+            g_price = res.get('price_level')
+            price_str = "$" * g_price if g_price else ""
+            summary_text = res.get('editorial_summary', {}).get('overview', '')
             
             # Save or get Place
             db_place = db.query(models.Place).filter(models.Place.id == place_id).first()
@@ -174,7 +182,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                             "Authorization": f"Bearer {YELP_API_KEY}",
                             "Content-Type": "application/graphql"
                         }
-                        query = '{ business(id: "' + yelp_id + '") { reviews { text rating user { name } } } }'
+                        query = '{ business(id: "' + yelp_id + '") { price categories { title } reviews { text rating user { name } } } }'
                         
                         yr_res = requests.post(graphql_url, headers=gql_headers, data=query).json()
                         
@@ -182,6 +190,17 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                             print("Yelp GraphQL Error:", yr_res["errors"])
                         
                         business_data = yr_res.get("data", {}).get("business") or {}
+                        
+                        # Extract price and categories
+                        y_price = business_data.get("price")
+                        if y_price and not price_str:
+                            price_str = y_price
+                        
+                        categories = [c.get("title") for c in business_data.get("categories", []) if c.get("title")]
+                        if categories:
+                            cat_str = "Categories: " + ", ".join(categories)
+                            summary_text = f"{summary_text} | {cat_str}" if summary_text else cat_str
+                            
                         for r in business_data.get("reviews", []):
                             text = r.get("text")
                             if text:
@@ -205,6 +224,8 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 "name": name,
                 "rating": rating,
                 "total_reviews": total_reviews,
+                "price_level": price_str,
+                "summary": summary_text,
                 "lat": lat,
                 "lng": lng,
                 "reviews": all_review_texts
@@ -212,10 +233,12 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             
         # 4. Gemini Ranking
         prompt = f"I am building a restaurant recommendation app. The user is craving: '{request.dish_name}'.\n"
-        prompt += "Here are the candidate restaurants and their latest Google Maps reviews:\n\n"
+        prompt += "Here are the candidate restaurants and their latest Google Maps & Yelp reviews:\n\n"
         
         for idx, r in enumerate(restaurant_data):
-            prompt += f"[{idx}] {r['name']} (Rating: {r['rating']} based on {r['total_reviews']} reviews)\n"
+            prompt += f"[{idx}] {r['name']} (Rating: {r['rating']} based on {r['total_reviews']} reviews, Price: {r['price_level']})\n"
+            if r['summary']:
+                prompt += f"Context: {r['summary']}\n"
             prompt += f"Reviews: {' | '.join(r['reviews'])}\n\n"
             
         prompt += """
@@ -254,6 +277,8 @@ Rank the array in order of best recommendation first.
                     name=r_data["name"],
                     rating=r_data["rating"],
                     total_reviews=r_data["total_reviews"],
+                    price_level=r_data.get("price_level"),
+                    summary=r_data.get("summary"),
                     reason=item.get("reason", "Highly recommended based on reviews."),
                     helpful_quote=item.get("helpful_quote"),
                     lat=r_data["lat"],
