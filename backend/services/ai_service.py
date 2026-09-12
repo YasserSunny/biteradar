@@ -1,23 +1,81 @@
+import re
 import json
+import math
 from typing import List, Dict, Any
 from google.genai import types
 from config import ai_client
+from logger import get_logger
+
+logger = get_logger("ai_service")
+
+def _generate_fallback_ranking(dish_name: str, restaurant_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Fallback ranking heuristic when Gemini is unreachable, quota-exhausted, or returns invalid JSON.
+    Ranks by popularity score = rating * log10(total_reviews + 10).
+    Extracts a quote mentioning the dish if found in reviews.
+    """
+    logger.info(f"Applying intelligent fallback ranking for {len(restaurant_data)} candidate(s)")
+    
+    scored_candidates = []
+    for idx, r in enumerate(restaurant_data):
+        rating = float(r.get("rating", 0.0) or 0.0)
+        reviews_count = int(r.get("total_reviews", 0) or 0)
+        score = rating * math.log10(max(reviews_count, 1) + 10)
+
+        # Look for any customer review that mentions the dish
+        matching_quote = ""
+        dish_lower = dish_name.lower().strip()
+        for review in r.get("reviews", []):
+            if dish_lower in review.lower():
+                # Extract sentence or first 140 chars
+                matching_quote = review[:160].strip()
+                break
+
+        reason = (
+            f"Highly rated local favorite ({rating}★ across {reviews_count:,} reviews) with consistent quality."
+            if not matching_quote
+            else f"Customer reviews specifically highlight this spot for {dish_name}."
+        )
+
+        scored_candidates.append({
+            "index": idx,
+            "score": score,
+            "reason": reason,
+            "helpful_quote": matching_quote
+        })
+
+    # Sort descending by calculated score
+    scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    return [
+        {
+            "index": c["index"],
+            "reason": c["reason"],
+            "helpful_quote": c["helpful_quote"]
+        }
+        for c in scored_candidates
+    ]
 
 def rank_restaurants_with_gemini(dish_name: str, restaurant_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Synthesize reviews and rank candidate restaurants using Gemini 2.5 Flash."""
-    if not ai_client or not restaurant_data:
+    """Synthesize reviews and rank candidate restaurants using Gemini 2.5 Flash, with automatic fallback."""
+    if not restaurant_data:
         return []
 
-    prompt = f"I am building a restaurant recommendation app. The user is craving: '{dish_name}'.\n"
-    prompt += "Here are the candidate restaurants and their latest Google Maps & Yelp reviews:\n\n"
-    
-    for idx, r in enumerate(restaurant_data):
-        prompt += f"[{idx}] {r['name']} (Rating: {r['rating']} based on {r['total_reviews']} reviews, Price: {r['price_level']})\n"
-        if r.get('summary'):
-            prompt += f"Context: {r['summary']}\n"
-        prompt += f"Reviews: {' | '.join(r.get('reviews', []))}\n\n"
+    if not ai_client:
+        logger.warning("Gemini AI client not initialized (missing GEMINI_API_KEY). Using fallback ranking.")
+        return _generate_fallback_ranking(dish_name, restaurant_data)
+
+    try:
+        prompt = f"I am building a restaurant recommendation app. The user is craving: '{dish_name}'.\n"
+        prompt += "Here are the candidate restaurants and their latest Google Maps & Yelp reviews:\n\n"
         
-    prompt += """
+        for idx, r in enumerate(restaurant_data):
+            prompt += f"[{idx}] {r['name']} (Rating: {r['rating']} based on {r['total_reviews']} reviews, Price: {r['price_level']})\n"
+            if r.get('summary'):
+                prompt += f"Context: {r['summary']}\n"
+            prompt += f"Reviews: {' | '.join(r.get('reviews', []))}\n\n"
+            
+        prompt += """
 Please analyze these reviews specifically looking for mentions of the dish the user is craving. 
 When ranking the restaurants, consider both the relevance of the reviews to the dish, AND the overall popularity and reliability of the restaurant (i.e., prioritize restaurants that have a high rating supported by a large number of total reviews over those with very few reviews).
 
@@ -29,17 +87,36 @@ Each object must have:
 
 Rank the array in order of best recommendation first.
 """
+        logger.info(f"Sending prompt to Gemini 2.5 Flash for dish: '{dish_name}' with {len(restaurant_data)} candidates")
 
-    response = ai_client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
-    )
 
-    try:
-        return json.loads(response.text)
+        raw_text = response.text or ""
+        
+        # Parse JSON safely, handling possible markdown fences or stray tokens
+        try:
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                logger.info(f"Gemini successfully ranked {len(parsed)} restaurant(s)")
+                return parsed
+        except json.JSONDecodeError:
+            # Attempt to extract JSON array using regex
+            match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+            if match:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    logger.info("Parsed Gemini output using regex fallback")
+                    return parsed
+
+        logger.warning(f"Gemini response could not be parsed as a JSON list. Raw text: {raw_text[:200]}")
+        return _generate_fallback_ranking(dish_name, restaurant_data)
+
     except Exception as e:
-        print("Error parsing Gemini response:", e)
-        return []
+        logger.error(f"Gemini generation error: {e}. Executing graceful fallback.", exc_info=True)
+        return _generate_fallback_ranking(dish_name, restaurant_data)

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps';
 import { Autocomplete } from "../components/Autocomplete";
 import { ProfileModal } from "../components/ProfileModal";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
@@ -41,6 +42,7 @@ export default function Home() {
   // Default center (NYC initially, overwritten immediately by geolocation)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const selectedPlace = results.find((r) => String(r.id) === selectedPlaceId);
 
@@ -163,10 +165,11 @@ export default function Home() {
 
   const handleLogin = async () => {
     try {
+      setErrorBanner(null);
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed:", error);
-      alert("Failed to login. Please try again.");
+      setErrorBanner(error.message || "Failed to log in with Google. Please try again.");
     }
   };
 
@@ -175,6 +178,7 @@ export default function Home() {
       await signOut(auth);
       setResults([]);
       setSelectedPlaceId(null);
+      setErrorBanner(null);
       setProfile(null);
       setSearchHistory([]);
     } catch (error) {
@@ -191,14 +195,15 @@ export default function Home() {
     const finalLocation = targetLocation.trim();
 
     if (!finalDish) {
-      alert("Please enter what you are craving.");
+      setErrorBanner("Please enter what dish you are craving.");
       return;
     }
     if (!finalLocation) {
-      alert("Please enter a city or zip code (or wait for auto-location detection).");
+      setErrorBanner("Please enter a city or zip code (or wait for auto-location detection).");
       return;
     }
 
+    setErrorBanner(null);
     setDishName(finalDish);
     setLocation(finalLocation);
     setLoading(true);
@@ -217,6 +222,12 @@ export default function Home() {
         },
         body: JSON.stringify({ dish_name: finalDish, location: finalLocation, user_id: user?.uid }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to get recommendations. Please check your query and try again.");
+      }
+
       const data = await response.json();
       setResults(data);
       
@@ -227,9 +238,9 @@ export default function Home() {
       if (user) {
         fetchHistory(user.uid);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching data:", error);
-      alert("Something went wrong! Check the console.");
+      setErrorBanner(error.message || "Could not connect to BiteRadar search service. Please make sure the server is running.");
     } finally {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -350,28 +361,47 @@ export default function Home() {
   }
 
   return (
-    <APIProvider apiKey={apiKey} libraries={['places']}>
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center">
-        {/* Header / Search Bar */}
-        <header className="w-full bg-white shadow-sm p-6 flex flex-col items-center relative">
-          <div className="absolute right-6 top-6 flex items-center gap-3">
-            <button
-              onClick={() => {
-                setIsFirstTimeProfile(false);
-                setIsProfileModalOpen(true);
-              }}
-              className="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 py-1.5 px-3 rounded-full border border-gray-200 transition flex items-center gap-1.5"
-              title="Edit food preferences"
-            >
-              <span>👤</span>
-              <span>{profile?.name || user.email}</span>
-              <span className="text-gray-400 text-[10px]">⚙️</span>
-            </button>
-            <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium">Logout</button>
-          </div>
-          
-          <h1 className="text-3xl font-bold text-orange-600 mb-6">biteradar</h1>
-          <form onSubmit={handleSearch} className="flex gap-4 w-full max-w-3xl">
+    <ErrorBoundary>
+      <APIProvider apiKey={apiKey} libraries={['places']}>
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center">
+          {/* Header / Search Bar */}
+          <header className="w-full bg-white shadow-sm p-6 flex flex-col items-center relative">
+            <div className="absolute right-6 top-6 flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setIsFirstTimeProfile(false);
+                  setIsProfileModalOpen(true);
+                }}
+                className="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 py-1.5 px-3 rounded-full border border-gray-200 transition flex items-center gap-1.5"
+                title="Edit food preferences"
+              >
+                <span>👤</span>
+                <span>{profile?.name || user.email}</span>
+                <span className="text-gray-400 text-[10px]">⚙️</span>
+              </button>
+              <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium">Logout</button>
+            </div>
+            
+            <h1 className="text-3xl font-bold text-orange-600 mb-6">biteradar</h1>
+
+            {/* Error Banner */}
+            {errorBanner && (
+              <div className="w-full max-w-3xl mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center justify-between gap-3 text-sm shadow-sm animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <span className="text-red-500 font-bold text-base">⚠️</span>
+                  <span className="font-medium">{errorBanner}</span>
+                </div>
+                <button
+                  onClick={() => setErrorBanner(null)}
+                  className="text-red-400 hover:text-red-700 font-bold text-xl leading-none cursor-pointer px-1"
+                  title="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleSearch} className="flex gap-4 w-full max-w-3xl">
             <input
               type="text"
               placeholder="What are you craving? (e.g. Spicy Tuna Roll)"
@@ -809,7 +839,8 @@ export default function Home() {
             onClose={() => setIsProfileModalOpen(false)}
           />
         )}
-      </div>
-    </APIProvider>
+        </div>
+      </APIProvider>
+    </ErrorBoundary>
   );
 }
