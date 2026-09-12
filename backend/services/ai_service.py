@@ -87,10 +87,10 @@ Each object must have:
 
 Rank the array in order of best recommendation first.
 """
-        logger.info(f"Sending prompt to Gemini 2.5 Flash for dish: '{dish_name}' with {len(restaurant_data)} candidates")
+        logger.info(f"Sending prompt to Gemini 3.6 Flash for dish: '{dish_name}' with {len(restaurant_data)} candidates")
 
         response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
