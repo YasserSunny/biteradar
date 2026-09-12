@@ -34,6 +34,7 @@ export default function Home() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isFirstTimeProfile, setIsFirstTimeProfile] = useState(false);
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
+  const [searchStep, setSearchStep] = useState<number | null>(null);
 
   // Default center (NYC)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
@@ -107,6 +108,11 @@ export default function Home() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setSearchStep(1);
+    setResults([]);
+
+    const t1 = setTimeout(() => setSearchStep(2), 1600);
+    const t2 = setTimeout(() => setSearchStep(3), 3600);
 
     try {
       const response = await fetch("http://localhost:8000/api/search", {
@@ -130,7 +136,10 @@ export default function Home() {
       console.error("Error fetching data:", error);
       alert("Something went wrong! Check the console.");
     } finally {
+      clearTimeout(t1);
+      clearTimeout(t2);
       setLoading(false);
+      setSearchStep(null);
     }
   };
 
@@ -138,6 +147,11 @@ export default function Home() {
     setDishName(item.dish_name);
     setLocation(item.location);
     setLoading(true);
+    setSearchStep(1);
+    setResults([]);
+
+    const t1 = setTimeout(() => setSearchStep(2), 400);
+    const t2 = setTimeout(() => setSearchStep(3), 800);
 
     try {
       const response = await fetch(`http://localhost:8000/api/queries/${item.query_id}/recommendations`);
@@ -163,7 +177,10 @@ export default function Home() {
     } catch (error) {
       console.error("Error loading past search:", error);
     } finally {
+      clearTimeout(t1);
+      clearTimeout(t2);
       setLoading(false);
+      setSearchStep(null);
     }
   };
 
@@ -251,10 +268,24 @@ export default function Home() {
             />
             <button
               type="submit"
-              className="bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-orange-700 transition"
+              className="bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-orange-700 transition disabled:opacity-85 flex items-center justify-center min-w-[140px]"
               disabled={loading}
             >
-              {loading ? "Searching..." : "Search"}
+              {loading ? (
+                <span className="flex items-center gap-2 text-sm">
+                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {searchStep === 1
+                    ? "Searching..."
+                    : searchStep === 2
+                    ? "Compiling..."
+                    : "Making a list..."}
+                </span>
+              ) : (
+                "Search"
+              )}
             </button>
           </form>
 
@@ -314,6 +345,94 @@ export default function Home() {
             <h2 className="text-xl font-bold text-gray-800 mb-2">Results</h2>
             {results.length === 0 && !loading && (
               <p className="text-gray-500">Enter a dish and location to find the best spots!</p>
+            )}
+
+            {/* Step-by-Step Animated Loading Card */}
+            {loading && (
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-orange-100 flex flex-col gap-4 animate-in fade-in duration-300">
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                  <span className="text-xs font-bold uppercase tracking-wider text-orange-600 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
+                    Progress
+                  </span>
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                    Step {searchStep || 1} of 3
+                  </span>
+                </div>
+
+                {/* Animated Progress Bar */}
+                <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-orange-500 h-2 rounded-full transition-all duration-700 ease-out"
+                    style={{ width: searchStep === 1 ? '33%' : searchStep === 2 ? '66%' : '95%' }}
+                  />
+                </div>
+
+                {/* Step 1: Searching */}
+                <div className="flex items-start gap-3.5 pt-1">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 shrink-0 ${
+                    (searchStep || 1) > 1 
+                      ? "bg-green-100 text-green-700" 
+                      : "bg-orange-500 text-white animate-pulse ring-4 ring-orange-100"
+                  }`}>
+                    {(searchStep || 1) > 1 ? "✓" : "1"}
+                  </div>
+                  <div>
+                    <h4 className={`text-sm font-semibold transition ${
+                      (searchStep || 1) >= 1 ? "text-gray-900" : "text-gray-400"
+                    }`}>
+                      1. Searching
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      Querying Google Maps & Yelp for matching spots and reviews
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 2: Compiling */}
+                <div className="flex items-start gap-3.5">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 shrink-0 ${
+                    (searchStep || 1) > 2
+                      ? "bg-green-100 text-green-700"
+                      : (searchStep || 1) === 2
+                      ? "bg-orange-500 text-white animate-pulse ring-4 ring-orange-100"
+                      : "bg-gray-100 text-gray-400"
+                  }`}>
+                    {(searchStep || 1) > 2 ? "✓" : "2"}
+                  </div>
+                  <div>
+                    <h4 className={`text-sm font-semibold transition ${
+                      (searchStep || 1) >= 2 ? "text-gray-900" : "text-gray-400"
+                    }`}>
+                      2. Compiling
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      Synthesizing review sentiment, authenticity, and ratings
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 3: Making a list */}
+                <div className="flex items-start gap-3.5">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 shrink-0 ${
+                    (searchStep || 1) === 3
+                      ? "bg-orange-500 text-white animate-pulse ring-4 ring-orange-100"
+                      : "bg-gray-100 text-gray-400"
+                  }`}>
+                    3
+                  </div>
+                  <div>
+                    <h4 className={`text-sm font-semibold transition ${
+                      (searchStep || 1) === 3 ? "text-gray-900" : "text-gray-400"
+                    }`}>
+                      3. Making a list
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      Ranking dishes with AI and highlighting customer quotes
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
             {results.map((r, i) => (
               <div key={r.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
