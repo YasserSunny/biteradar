@@ -195,10 +195,15 @@ export default function Home() {
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-lg text-gray-900">{i + 1}. {r.name}</h3>
                   <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
-                    ★ {r.rating}
+                    ★ {r.rating} ({r.total_reviews} reviews)
                   </span>
                 </div>
-                <p className="text-gray-600 text-sm italic">"{r.reason}"</p>
+                <p className="text-gray-600 text-sm"><strong>AI Reason:</strong> {r.reason}</p>
+                {r.helpful_quote && (
+                  <p className="text-orange-700 text-sm italic bg-orange-50 p-2 rounded border border-orange-100">
+                    "{r.helpful_quote}"
+                  </p>
+                )}
                 
                 {/* Real Feedback Buttons */}
                 <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from dotenv import load_dotenv
 import googlemaps
+import requests
 from google import genai
 from google.genai import types
 
@@ -32,6 +33,7 @@ app.add_middleware(
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+YELP_API_KEY = os.getenv("YELP_API_KEY")
 
 gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else None
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -45,7 +47,9 @@ class RestaurantResult(BaseModel):
     place_id: str
     name: str
     rating: float
+    total_reviews: int
     reason: str
+    helpful_quote: Optional[str] = None
     lat: float
     lng: float
     helpful: Optional[bool] = None
@@ -75,7 +79,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     place_id=r.place_id,
                     name=r.name,
                     rating=r.rating,
+                    total_reviews=r.total_reviews,
                     reason=r.reason,
+                    helpful_quote=r.helpful_quote,
                     lat=r.lat,
                     lng=r.lng,
                     helpful=r.helpful
@@ -110,22 +116,84 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         if not candidates:
             return []
 
-        # 3. Fetch reviews
+        # 3. Fetch reviews from Google and Yelp
         restaurant_data = []
         for place in candidates:
             place_id = place['place_id']
-            details = gmaps.place(place_id, fields=['name', 'rating', 'review', 'geometry'])
+            
+            # --- GOOGLE ---
+            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry'])
             res = details.get('result', {})
             
-            reviews = [r.get('text') for r in res.get('reviews', []) if r.get('text')]
+            name = res.get('name', 'Unknown')
+            lat = res.get('geometry', {}).get('location', {}).get('lat', 0)
+            lng = res.get('geometry', {}).get('location', {}).get('lng', 0)
+            rating = res.get('rating', 0.0)
+            total_reviews = res.get('user_ratings_total', 0)
+            
+            # Save or get Place
+            db_place = db.query(models.Place).filter(models.Place.id == place_id).first()
+            if not db_place:
+                db_place = models.Place(id=place_id, name=name, lat=lat, lng=lng)
+                db.add(db_place)
+                db.commit()
+            
+            google_reviews = res.get('reviews', [])
+            all_review_texts = []
+            
+            for r in google_reviews:
+                text = r.get('text')
+                if text:
+                    all_review_texts.append(text)
+                    exists = db.query(models.Review).filter(models.Review.place_id == place_id, models.Review.text == text).first()
+                    if not exists:
+                        db.add(models.Review(
+                            place_id=place_id,
+                            source="google",
+                            author_name=r.get('author_name', 'Google User'),
+                            rating=float(r.get('rating', 0)),
+                            text=text
+                        ))
+            
+            # --- YELP ---
+            if YELP_API_KEY:
+                try:
+                    headers = {"Authorization": f"Bearer {YELP_API_KEY}"}
+                    search_url = "https://api.yelp.com/v3/businesses/search"
+                    params = {"term": name, "latitude": lat, "longitude": lng, "limit": 1}
+                    y_res = requests.get(search_url, headers=headers).json()
+                    
+                    if y_res.get("businesses"):
+                        yelp_id = y_res["businesses"][0]["id"]
+                        rev_url = f"https://api.yelp.com/v3/businesses/{yelp_id}/reviews"
+                        yr_res = requests.get(rev_url, headers=headers).json()
+                        
+                        for r in yr_res.get("reviews", []):
+                            text = r.get("text")
+                            if text:
+                                all_review_texts.append(text)
+                                exists = db.query(models.Review).filter(models.Review.place_id == place_id, models.Review.text == text).first()
+                                if not exists:
+                                    db.add(models.Review(
+                                        place_id=place_id,
+                                        source="yelp",
+                                        author_name=r.get("user", {}).get("name", "Yelp User"),
+                                        rating=float(r.get("rating", 0)),
+                                        text=text
+                                    ))
+                except Exception as e:
+                    print("Yelp fetch error:", e)
+            
+            db.commit()
             
             restaurant_data.append({
                 "place_id": place_id,
-                "name": res.get('name', 'Unknown'),
-                "rating": res.get('rating', 0.0),
-                "lat": res.get('geometry', {}).get('location', {}).get('lat', 0),
-                "lng": res.get('geometry', {}).get('location', {}).get('lng', 0),
-                "reviews": reviews
+                "name": name,
+                "rating": rating,
+                "total_reviews": total_reviews,
+                "lat": lat,
+                "lng": lng,
+                "reviews": all_review_texts
             })
             
         # 4. Gemini Ranking
@@ -133,15 +201,18 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         prompt += "Here are the candidate restaurants and their latest Google Maps reviews:\n\n"
         
         for idx, r in enumerate(restaurant_data):
-            prompt += f"[{idx}] {r['name']} (Rating: {r['rating']})\n"
+            prompt += f"[{idx}] {r['name']} (Rating: {r['rating']} based on {r['total_reviews']} reviews)\n"
             prompt += f"Reviews: {' | '.join(r['reviews'])}\n\n"
             
         prompt += """
 Please analyze these reviews specifically looking for mentions of the dish the user is craving. 
+When ranking the restaurants, consider both the relevance of the reviews to the dish, AND the overall popularity and reliability of the restaurant (i.e., prioritize restaurants that have a high rating supported by a large number of total reviews over those with very few reviews).
+
 Return your response as a JSON array of objects.
 Each object must have:
 - "index": the integer index of the restaurant from the list above.
-- "reason": A short 1-2 sentence convincing reason why this restaurant is good for this specific dish, based on the reviews. If the reviews don't mention the dish, make a general recommendation based on the restaurant's quality.
+- "reason": A short 1-2 sentence convincing reason why this restaurant is good for this specific dish, based on the reviews and overall popularity. If the reviews don't mention the dish, make a general recommendation based on the restaurant's quality.
+- "helpful_quote": Exact quote snippet extracted directly from the reviews mentioning the dish. Leave empty if none found.
 
 Rank the array in order of best recommendation first.
 """
@@ -168,7 +239,9 @@ Rank the array in order of best recommendation first.
                     place_id=r_data["place_id"],
                     name=r_data["name"],
                     rating=r_data["rating"],
+                    total_reviews=r_data["total_reviews"],
                     reason=item.get("reason", "Highly recommended based on reviews."),
+                    helpful_quote=item.get("helpful_quote"),
                     lat=r_data["lat"],
                     lng=r_data["lng"]
                 )
@@ -182,7 +255,9 @@ Rank the array in order of best recommendation first.
                         place_id=r_data["place_id"],
                         name=r_data["name"],
                         rating=r_data["rating"],
+                        total_reviews=r_data["total_reviews"],
                         reason=db_rec.reason,
+                        helpful_quote=db_rec.helpful_quote,
                         lat=r_data["lat"],
                         lng=r_data["lng"],
                         helpful=None
