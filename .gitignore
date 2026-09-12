@@ -12,10 +12,13 @@ frontend/.vercel/
 
 # Backend
 backend/venv/
+backend/.venv/
+.venv/
 backend/env/
-backend/__pycache__/
-backend/*.pyc
+**/__pycache__/
+*.pyc
 backend/.pytest_cache/
+.pytest_cache/
 backend/.env
 backend/.env.local
 
