@@ -501,6 +501,7 @@ export default function Home() {
                   title={r.name} 
                   label={(i + 1).toString()}
                   onClick={() => handleSelectPlace(String(r.id))}
+                  onMouseOver={() => handleSelectPlace(String(r.id))}
                 />
               ))}
 
@@ -682,6 +683,9 @@ export default function Home() {
                   onClick={() => {
                     setSelectedPlaceId(String(r.id));
                     setMapCenter({ lat: r.lat, lng: r.lng });
+                  }}
+                  onMouseEnter={() => {
+                    setSelectedPlaceId(String(r.id));
                   }}
                   className={`p-4 rounded-xl shadow-sm border transition-all duration-300 flex flex-col gap-2 cursor-pointer ${
                     isSelected
