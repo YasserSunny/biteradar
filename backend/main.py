@@ -1,13 +1,20 @@
 import os
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 import googlemaps
 from google import genai
 from google.genai import types
+
+from sqlalchemy.orm import Session
+import models
+from database import engine, get_db
+
+# Create DB tables
+models.Base.metadata.create_all(bind=engine)
 
 load_dotenv()
 
@@ -33,20 +40,32 @@ class SearchRequest(BaseModel):
     location: str
 
 class RestaurantResult(BaseModel):
-    id: str
+    id: str  # This is now our database recommendation ID, used for feedback
+    place_id: str
     name: str
     rating: float
     reason: str
     lat: float
     lng: float
+    helpful: Optional[bool] = None
+
+class FeedbackRequest(BaseModel):
+    recommendation_id: int
+    helpful: bool
 
 @app.post("/api/search", response_model=List[RestaurantResult])
-def search_dish(request: SearchRequest):
+def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
     if not gmaps or not ai_client:
         print("Missing API Keys, returning mock data.")
-        return get_mock_results(request.dish_name)
+        return []
 
     try:
+        # Save search query to DB
+        db_query = models.SearchQuery(dish_name=request.dish_name, location=request.location)
+        db.add(db_query)
+        db.commit()
+        db.refresh(db_query)
+
         # 1. Geocode the location to get lat/lng
         geocode_result = gmaps.geocode(request.location)
         if not geocode_result:
@@ -54,30 +73,29 @@ def search_dish(request: SearchRequest):
             
         loc = geocode_result[0]['geometry']['location']
         
-        # 2. Search for restaurants near the location with the dish name
+        # 2. Search for restaurants
         places_result = gmaps.places(
             query=f"restaurant serving {request.dish_name} in {request.location}",
             location=(loc['lat'], loc['lng']),
             radius=5000
         )
         
-        candidates = places_result.get('results', [])[:5] # Take top 5 to save API cost
+        candidates = places_result.get('results', [])[:5]
         
         if not candidates:
             return []
 
-        # 3. Fetch details (reviews) for each candidate
+        # 3. Fetch reviews
         restaurant_data = []
         for place in candidates:
             place_id = place['place_id']
-            # Fetch reviews
             details = gmaps.place(place_id, fields=['name', 'rating', 'review', 'geometry'])
             res = details.get('result', {})
             
             reviews = [r.get('text') for r in res.get('reviews', []) if r.get('text')]
             
             restaurant_data.append({
-                "id": place_id,
+                "place_id": place_id,
                 "name": res.get('name', 'Unknown'),
                 "rating": res.get('rating', 0.0),
                 "lat": res.get('geometry', {}).get('location', {}).get('lat', 0),
@@ -85,7 +103,7 @@ def search_dish(request: SearchRequest):
                 "reviews": reviews
             })
             
-        # 4. Use Gemini to rank and generate reasons
+        # 4. Gemini Ranking
         prompt = f"I am building a restaurant recommendation app. The user is craving: '{request.dish_name}'.\n"
         prompt += "Here are the candidate restaurants and their latest Google Maps reviews:\n\n"
         
@@ -112,20 +130,37 @@ Rank the array in order of best recommendation first.
         
         llm_results = json.loads(response.text)
         
-        # 5. Format the final output
+        # 5. Format and Save to DB
         final_results = []
         for item in llm_results:
             idx = item.get("index")
             if idx is not None and 0 <= idx < len(restaurant_data):
                 r_data = restaurant_data[idx]
+                
+                # Save recommendation to DB
+                db_rec = models.Recommendation(
+                    query_id=db_query.id,
+                    place_id=r_data["place_id"],
+                    name=r_data["name"],
+                    rating=r_data["rating"],
+                    reason=item.get("reason", "Highly recommended based on reviews."),
+                    lat=r_data["lat"],
+                    lng=r_data["lng"]
+                )
+                db.add(db_rec)
+                db.commit()
+                db.refresh(db_rec)
+                
                 final_results.append(
                     RestaurantResult(
-                        id=r_data["id"],
+                        id=str(db_rec.id),  # Use the DB ID for frontend feedback
+                        place_id=r_data["place_id"],
                         name=r_data["name"],
                         rating=r_data["rating"],
-                        reason=item.get("reason", "Highly recommended based on reviews."),
+                        reason=db_rec.reason,
                         lat=r_data["lat"],
-                        lng=r_data["lng"]
+                        lng=r_data["lng"],
+                        helpful=None
                     )
                 )
                 
@@ -133,26 +168,14 @@ Rank the array in order of best recommendation first.
 
     except Exception as e:
         print(f"Error during API calls: {e}")
-        # Fallback to mock on error
-        return get_mock_results(request.dish_name)
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-def get_mock_results(dish_name: str) -> List[RestaurantResult]:
-    return [
-        RestaurantResult(
-            id="mock_1",
-            name="Mock Sushi Nakazawa",
-            rating=4.8,
-            reason=f"Highly rated for their {dish_name}. Reviewers frequently mention the incredible flavor and freshness.",
-            lat=40.7316,
-            lng=-74.0048
-        ),
-        RestaurantResult(
-            id="mock_2",
-            name="Mock Sugarfish",
-            rating=4.7,
-            reason=f"Popular spot for {dish_name}. Known for warm rice and melt-in-your-mouth texture.",
-            lat=40.7388,
-            lng=-73.9902
-        )
-    ]
+@app.post("/api/feedback")
+def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db)):
+    rec = db.query(models.Recommendation).filter(models.Recommendation.id == request.recommendation_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    
+    rec.helpful = request.helpful
+    db.commit()
+    return {"status": "success", "helpful": rec.helpful}

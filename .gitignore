@@ -22,3 +22,6 @@ backend/.env.local
 # OS
 .DS_Store
 *.swp
+
+# Database
+*.db

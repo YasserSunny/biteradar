@@ -27,14 +27,31 @@ export default function Home() {
       const data = await response.json();
       setResults(data);
       
-      // Center map on the first result if available
       if (data.length > 0) {
         setMapCenter({ lat: data[0].lat, lng: data[0].lng });
       }
     } catch (error) {
       console.error("Error fetching data:", error);
+      alert("Something went wrong! Check the console.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitFeedback = async (id: string, helpful: boolean) => {
+    try {
+      await fetch("http://localhost:8000/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ recommendation_id: parseInt(id), helpful }),
+      });
+      
+      // Update local state to reflect feedback
+      setResults(results.map(r => r.id === id ? { ...r, helpful } : r));
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
     }
   };
 
@@ -119,10 +136,20 @@ export default function Home() {
                 </div>
                 <p className="text-gray-600 text-sm italic">"{r.reason}"</p>
                 
-                {/* Mock Feedback Buttons */}
+                {/* Real Feedback Buttons */}
                 <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
-                  <button className="text-gray-400 hover:text-blue-600 text-sm font-medium">👍 Helpful</button>
-                  <button className="text-gray-400 hover:text-red-600 text-sm font-medium">👎 Not Helpful</button>
+                  <button 
+                    onClick={() => submitFeedback(r.id, true)}
+                    className={`text-sm font-medium transition ${r.helpful === true ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                  >
+                    👍 Helpful
+                  </button>
+                  <button 
+                    onClick={() => submitFeedback(r.id, false)}
+                    className={`text-sm font-medium transition ${r.helpful === false ? 'text-red-600' : 'text-gray-400 hover:text-red-600'}`}
+                  >
+                    👎 Not Helpful
+                  </button>
                 </div>
               </div>
             ))}
