@@ -10,6 +10,7 @@ from google import genai
 from google.genai import types
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import models
 from database import engine, get_db
 
@@ -60,7 +61,31 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         return []
 
     try:
-        # Save search query to DB
+        # Check cache (case insensitive exact match)
+        existing_query = db.query(models.SearchQuery).filter(
+            func.lower(models.SearchQuery.dish_name) == request.dish_name.lower(),
+            func.lower(models.SearchQuery.location) == request.location.lower()
+        ).first()
+
+        if existing_query and existing_query.recommendations:
+            print(f"Cache hit for {request.dish_name} in {request.location}")
+            return [
+                RestaurantResult(
+                    id=str(r.id),
+                    place_id=r.place_id,
+                    name=r.name,
+                    rating=r.rating,
+                    reason=r.reason,
+                    lat=r.lat,
+                    lng=r.lng,
+                    helpful=r.helpful
+                )
+                for r in existing_query.recommendations
+            ]
+            
+        print(f"Cache miss for {request.dish_name} in {request.location}. Calling APIs...")
+
+        # Save new search query to DB
         db_query = models.SearchQuery(dish_name=request.dish_name, location=request.location)
         db.add(db_query)
         db.commit()
