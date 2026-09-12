@@ -174,8 +174,21 @@ export default function Home() {
     setLocation(inputValue);
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeSearch = async (targetDish: string, targetLocation: string) => {
+    const finalDish = targetDish.trim();
+    const finalLocation = targetLocation.trim();
+
+    if (!finalDish) {
+      alert("Please enter what you are craving.");
+      return;
+    }
+    if (!finalLocation) {
+      alert("Please enter a city or zip code (or wait for auto-location detection).");
+      return;
+    }
+
+    setDishName(finalDish);
+    setLocation(finalLocation);
     setLoading(true);
     setSearchStep(1);
     setResults([]);
@@ -189,7 +202,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ dish_name: dishName, location, user_id: user?.uid }),
+        body: JSON.stringify({ dish_name: finalDish, location: finalLocation, user_id: user?.uid }),
       });
       const data = await response.json();
       setResults(data);
@@ -209,6 +222,29 @@ export default function Home() {
       clearTimeout(t2);
       setLoading(false);
       setSearchStep(null);
+    }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    executeSearch(dishName, location);
+  };
+
+  const handleQuickCraveClick = (dish: string) => {
+    const activeLoc = location.trim();
+    // 1. Check if this dish was already searched in recent history
+    const matched = searchHistory.find(
+      (h) =>
+        h.dish_name.toLowerCase().trim() === dish.toLowerCase().trim() &&
+        (!activeLoc || h.location.toLowerCase().includes(activeLoc.toLowerCase()) || activeLoc.toLowerCase().includes(h.location.toLowerCase()))
+    );
+
+    if (matched) {
+      // Instant load from cached history!
+      handleHistoryClick(matched);
+    } else {
+      // Triggers backend search (which checks DB cache table first)
+      executeSearch(dish, activeLoc);
     }
   };
 
@@ -386,9 +422,10 @@ export default function Home() {
                 <button
                   key={dish}
                   type="button"
-                  onClick={() => setDishName(dish)}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-medium rounded-full border border-amber-200 shadow-xs transition cursor-pointer"
-                  title={`Click to set craving to ${dish}`}
+                  onClick={() => handleQuickCraveClick(dish)}
+                  disabled={loading}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-medium rounded-full border border-amber-200 shadow-xs transition cursor-pointer disabled:opacity-50"
+                  title={`1-Click search for ${dish}`}
                 >
                   <span>✨</span>
                   <span>{dish}</span>
