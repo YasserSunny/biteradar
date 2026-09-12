@@ -72,6 +72,7 @@ class RestaurantResult(BaseModel):
     price_level: Optional[str] = None
     summary: Optional[str] = None
     open_now: Optional[bool] = None
+    website: Optional[str] = None
     reason: str
     helpful_quote: Optional[str] = None
     lat: float
@@ -111,6 +112,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     price_level=r.price_level,
                     summary=r.summary,
                     open_now=r.open_now,
+                    website=r.website,
                     reason=r.reason,
                     helpful_quote=r.helpful_quote,
                     lat=r.lat,
@@ -158,7 +160,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             place_id = place['place_id']
             
             # --- GOOGLE ---
-            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry', 'price_level', 'editorial_summary', 'opening_hours'])
+            details = gmaps.place(place_id, fields=['name', 'rating', 'user_ratings_total', 'review', 'geometry', 'price_level', 'editorial_summary', 'opening_hours', 'website'])
             res = details.get('result', {})
             
             name = res.get('name', 'Unknown')
@@ -167,6 +169,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             rating = res.get('rating', 0.0)
             total_reviews = res.get('user_ratings_total', 0)
             open_now = res.get('opening_hours', {}).get('open_now')
+            website = res.get('website')
             
             g_price = res.get('price_level')
             price_str = "$" * g_price if g_price else ""
@@ -175,8 +178,11 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             # Save or get Place
             db_place = db.query(models.Place).filter(models.Place.id == place_id).first()
             if not db_place:
-                db_place = models.Place(id=place_id, name=name, lat=lat, lng=lng)
+                db_place = models.Place(id=place_id, name=name, website=website, lat=lat, lng=lng)
                 db.add(db_place)
+                db.commit()
+            elif website and not db_place.website:
+                db_place.website = website
                 db.commit()
             
             google_reviews = res.get('reviews', [])
@@ -259,6 +265,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 "price_level": price_str,
                 "summary": summary_text,
                 "open_now": open_now,
+                "website": website,
                 "lat": lat,
                 "lng": lng,
                 "reviews": all_review_texts
@@ -313,6 +320,7 @@ Rank the array in order of best recommendation first.
                     price_level=r_data.get("price_level"),
                     summary=r_data.get("summary"),
                     open_now=r_data.get("open_now"),
+                    website=r_data.get("website"),
                     reason=item.get("reason", "Highly recommended based on reviews."),
                     helpful_quote=item.get("helpful_quote"),
                     lat=r_data["lat"],
@@ -332,6 +340,7 @@ Rank the array in order of best recommendation first.
                         price_level=db_rec.price_level,
                         summary=db_rec.summary,
                         open_now=db_rec.open_now,
+                        website=db_rec.website,
                         reason=db_rec.reason,
                         helpful_quote=db_rec.helpful_quote,
                         lat=r_data["lat"],
@@ -440,6 +449,7 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
             price_level=r.price_level,
             summary=r.summary,
             open_now=r.open_now,
+            website=r.website,
             reason=r.reason,
             helpful_quote=r.helpful_quote,
             lat=r.lat,

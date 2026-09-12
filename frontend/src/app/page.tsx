@@ -622,8 +622,8 @@ export default function Home() {
                   </p>
                 )}
                 
-                {/* Feedback Buttons & Directions */}
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                {/* Feedback Buttons, Menu & Directions */}
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-100">
                   <div className="flex gap-2">
                     <button 
                       onClick={() => submitFeedback(r.id, true)}
@@ -638,20 +638,34 @@ export default function Home() {
                       👎 Not Helpful
                     </button>
                   </div>
-                  <a
-                    href={
-                      r.place_id
-                        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name)}&query_place_id=${r.place_id}`
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name + ' ' + (location || ''))}`
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition cursor-pointer"
-                    title="Open on Google Maps & Get Directions"
-                  >
-                    <span>📍</span>
-                    <span>Directions</span>
-                  </a>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    {r.website && (
+                      <a
+                        href={r.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 hover:text-orange-700 bg-gray-50 hover:bg-orange-50 px-2.5 py-1 rounded-md border border-gray-200 transition cursor-pointer"
+                        title="View Restaurant Website & Menu"
+                      >
+                        <span>📖</span>
+                        <span>Menu / Web</span>
+                      </a>
+                    )}
+                    <a
+                      href={
+                        r.place_id
+                          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name)}&query_place_id=${r.place_id}`
+                          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name + ' ' + (location || ''))}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition cursor-pointer"
+                      title="Open on Google Maps & Get Directions"
+                    >
+                      <span>📍</span>
+                      <span>Directions</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             ))}

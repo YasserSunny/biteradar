@@ -50,6 +50,7 @@ class Recommendation(Base):
     price_level = Column(String, nullable=True)
     summary = Column(String, nullable=True)
     open_now = Column(Boolean, nullable=True)
+    website = Column(String, nullable=True)
     reason = Column(String)
     helpful_quote = Column(String, nullable=True)
     lat = Column(Float)
@@ -66,6 +67,7 @@ class Place(Base):
     
     id = Column(String, primary_key=True, index=True) # Google Place ID
     name = Column(String)
+    website = Column(String, nullable=True)
     lat = Column(Float)
     lng = Column(Float)
     
