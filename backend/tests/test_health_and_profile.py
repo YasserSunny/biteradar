@@ -44,6 +44,11 @@ class TestHealthAndProfile(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok", "service": "biteradar API"})
 
+    def test_database_url_normalization(self):
+        url_heroku = "postgres://user:pass@host:5432/dbname"
+        normalized = url_heroku.replace("postgres://", "postgresql://", 1) if url_heroku.startswith("postgres://") else url_heroku
+        self.assertEqual(normalized, "postgresql://user:pass@host:5432/dbname")
+
     def test_profile_lifecycle(self):
         """Test creating, fetching, and updating a user profile."""
         user_id = "test_usr_42"

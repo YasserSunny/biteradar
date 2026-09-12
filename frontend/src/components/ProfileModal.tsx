@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -97,7 +98,7 @@ export function ProfileModal({
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/api/profile", {
+      const res = await fetch(`${API_BASE_URL}/api/profile`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

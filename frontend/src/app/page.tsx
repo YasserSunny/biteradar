@@ -7,6 +7,7 @@ import { ProfileModal } from "../components/ProfileModal";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { API_BASE_URL } from "@/lib/api";
 
 interface UserProfileData {
   name: string;
@@ -123,7 +124,7 @@ export default function Home() {
 
   const fetchProfile = async (uid: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/profile/${uid}`);
+      const res = await fetch(`${API_BASE_URL}/api/profile/${uid}`);
       if (res.ok) {
         const data = await res.json();
         setProfile(data);
@@ -138,7 +139,7 @@ export default function Home() {
 
   const fetchHistory = async (uid: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/history/${uid}`);
+      const res = await fetch(`${API_BASE_URL}/api/history/${uid}`);
       if (res.ok) {
         const data = await res.json();
         setSearchHistory(data);
@@ -215,7 +216,7 @@ export default function Home() {
     const t2 = setTimeout(() => setSearchStep(3), 3600);
 
     try {
-      const response = await fetch("http://localhost:8000/api/search", {
+      const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -284,7 +285,7 @@ export default function Home() {
     const t2 = setTimeout(() => setSearchStep(3), 800);
 
     try {
-      const response = await fetch(`http://localhost:8000/api/queries/${item.query_id}/recommendations`);
+      const response = await fetch(`${API_BASE_URL}/api/queries/${item.query_id}/recommendations`);
       if (response.ok) {
         const data = await response.json();
         setResults(data);
@@ -293,7 +294,7 @@ export default function Home() {
         }
       } else {
         // Fallback to searching if cached query not found
-        const fallbackRes = await fetch("http://localhost:8000/api/search", {
+        const fallbackRes = await fetch(`${API_BASE_URL}/api/search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dish_name: item.dish_name, location: item.location, user_id: user?.uid }),
@@ -316,7 +317,7 @@ export default function Home() {
 
   const submitFeedback = async (id: string, helpful: boolean) => {
     try {
-      await fetch("http://localhost:8000/api/feedback", {
+      await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

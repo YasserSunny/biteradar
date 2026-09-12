@@ -2,11 +2,19 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Using SQLite for local prototyping so we don't need Docker installed.
-# When deploying to the cloud, this URL will be changed to a Postgres instance.
-DATABASE_URL = "sqlite:///./biteradar.db"
+# Using PostgreSQL when DATABASE_URL is provided (e.g. Cloud Run with Neon/Supabase),
+# with automatic fallback to SQLite for local development.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./biteradar.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Standardize URL prefix for SQLAlchemy (e.g., Heroku/Neon postgres:// -> postgresql://)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args["check_same_thread"] = False
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
