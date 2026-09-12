@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { APIProvider, Map, Marker } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps';
 import { Autocomplete } from "../components/Autocomplete";
 import { ProfileModal } from "../components/ProfileModal";
 import { auth, googleProvider } from '../firebase';
@@ -40,6 +40,17 @@ export default function Home() {
 
   // Default center (NYC initially, overwritten immediately by geolocation)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+
+  const selectedPlace = results.find((r) => String(r.id) === selectedPlaceId);
+
+  const handleSelectPlace = (id: string) => {
+    setSelectedPlaceId(id);
+    const card = document.getElementById(`restaurant-card-${id}`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  };
 
   // Auto-detect user current location (GPS + IP fallback)
   useEffect(() => {
@@ -163,6 +174,7 @@ export default function Home() {
     try {
       await signOut(auth);
       setResults([]);
+      setSelectedPlaceId(null);
       setProfile(null);
       setSearchHistory([]);
     } catch (error) {
@@ -192,6 +204,7 @@ export default function Home() {
     setLoading(true);
     setSearchStep(1);
     setResults([]);
+    setSelectedPlaceId(null);
 
     const t1 = setTimeout(() => setSearchStep(2), 1600);
     const t2 = setTimeout(() => setSearchStep(3), 3600);
@@ -254,6 +267,7 @@ export default function Home() {
     setLoading(true);
     setSearchStep(1);
     setResults([]);
+    setSelectedPlaceId(null);
 
     const t1 = setTimeout(() => setSearchStep(2), 400);
     const t2 = setTimeout(() => setSearchStep(3), 800);
@@ -486,8 +500,80 @@ export default function Home() {
                   position={{ lat: r.lat, lng: r.lng }} 
                   title={r.name} 
                   label={(i + 1).toString()}
+                  onClick={() => handleSelectPlace(String(r.id))}
                 />
               ))}
+
+              {selectedPlace && (
+                <InfoWindow
+                  position={{ lat: selectedPlace.lat, lng: selectedPlace.lng }}
+                  onCloseClick={() => setSelectedPlaceId(null)}
+                >
+                  <div className="p-1 max-w-[240px] text-gray-900 flex flex-col gap-1.5">
+                    <div>
+                      <h4 className="font-bold text-sm text-gray-900 leading-snug">
+                        {selectedPlace.name}
+                      </h4>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+                        <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          ★ {selectedPlace.rating} ({selectedPlace.total_reviews})
+                        </span>
+                        {selectedPlace.price_level && (
+                          <span className="text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded font-medium">
+                            {selectedPlace.price_level}
+                          </span>
+                        )}
+                        {selectedPlace.open_now !== undefined && selectedPlace.open_now !== null && (
+                          <span className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] inline-flex items-center gap-1 ${
+                            selectedPlace.open_now 
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                              : "bg-rose-50 text-rose-700 border border-rose-200"
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${selectedPlace.open_now ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                            {selectedPlace.open_now ? "Open" : "Closed"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedPlace.helpful_quote ? (
+                      <p className="text-[11px] text-orange-950 italic bg-orange-50/80 p-1.5 rounded border border-orange-100 leading-snug line-clamp-3">
+                        "{selectedPlace.helpful_quote}"
+                      </p>
+                    ) : selectedPlace.reason ? (
+                      <p className="text-[11px] text-gray-600 line-clamp-2 leading-snug">
+                        {selectedPlace.reason}
+                      </p>
+                    ) : null}
+
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100">
+                      {selectedPlace.website && (
+                        <a
+                          href={selectedPlace.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-semibold text-gray-700 hover:text-orange-600 bg-gray-50 px-2 py-0.5 rounded border border-gray-200"
+                        >
+                          📖 Menu
+                        </a>
+                      )}
+                      <a
+                        href={
+                          selectedPlace.place_id
+                            ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedPlace.name)}&query_place_id=${selectedPlace.place_id}`
+                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedPlace.name + ' ' + (location || ''))}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-orange-700 hover:text-orange-800 bg-orange-50 px-2 py-0.5 rounded border border-orange-200 ml-auto flex items-center gap-0.5"
+                      >
+                        <span>📍</span>
+                        <span>Directions</span>
+                      </a>
+                    </div>
+                  </div>
+                </InfoWindow>
+              )}
             </Map>
           </div>
 
@@ -587,88 +673,118 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {results.map((r, i) => (
-              <div key={r.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
-                <div className="flex justify-between items-start gap-2">
-                  <h3 className="font-bold text-lg text-gray-900 leading-tight">{i + 1}. {r.name}</h3>
-                  <div className="flex flex-wrap gap-1.5 items-center justify-end shrink-0">
-                    <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
-                      ★ {r.rating} ({r.total_reviews} reviews)
-                    </span>
-                    {r.price_level && (
-                      <span className="bg-gray-100 text-gray-800 text-xs font-bold px-2 py-1 rounded">
-                        {r.price_level}
+            {results.map((r, i) => {
+              const isSelected = selectedPlaceId === String(r.id);
+              return (
+                <div 
+                  key={r.id} 
+                  id={`restaurant-card-${r.id}`}
+                  onClick={() => {
+                    setSelectedPlaceId(String(r.id));
+                    setMapCenter({ lat: r.lat, lng: r.lng });
+                  }}
+                  className={`p-4 rounded-xl shadow-sm border transition-all duration-300 flex flex-col gap-2 cursor-pointer ${
+                    isSelected
+                      ? "bg-orange-50/60 border-orange-500 ring-2 ring-orange-400 shadow-md scale-[1.01]"
+                      : "bg-white border-gray-100 hover:border-gray-200 hover:shadow"
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-lg text-gray-900 leading-tight">{i + 1}. {r.name}</h3>
+                      {isSelected && (
+                        <span className="bg-orange-500 text-white text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full tracking-wide shrink-0 animate-in fade-in">
+                          Pin Selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 items-center justify-end shrink-0">
+                      <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
+                        ★ {r.rating} ({r.total_reviews} reviews)
                       </span>
-                    )}
-                    {r.open_now !== undefined && r.open_now !== null && (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                        r.open_now 
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                          : "bg-rose-50 text-rose-700 border border-rose-200"
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${r.open_now ? "bg-emerald-500" : "bg-rose-500"}`}></span>
-                        {r.open_now ? "Open Now" : "Closed"}
-                      </span>
-                    )}
+                      {r.price_level && (
+                        <span className="bg-gray-100 text-gray-800 text-xs font-bold px-2 py-1 rounded">
+                          {r.price_level}
+                        </span>
+                      )}
+                      {r.open_now !== undefined && r.open_now !== null && (
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                          r.open_now 
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                            : "bg-rose-50 text-rose-700 border border-rose-200"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${r.open_now ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                          {r.open_now ? "Open Now" : "Closed"}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                {r.summary && (
-                  <p className="text-gray-500 text-xs mb-1">{r.summary}</p>
-                )}
-                <p className="text-gray-600 text-sm"><strong>AI Reason:</strong> {r.reason}</p>
-                {r.helpful_quote && (
-                  <p className="text-orange-700 text-sm italic bg-orange-50 p-2 rounded border border-orange-100">
-                    "{r.helpful_quote}"
-                  </p>
-                )}
-                
-                {/* Feedback Buttons, Menu & Directions */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-100">
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => submitFeedback(r.id, true)}
-                      className={`text-sm font-medium transition ${r.helpful === true ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
-                    >
-                      👍 Helpful
-                    </button>
-                    <button 
-                      onClick={() => submitFeedback(r.id, false)}
-                      className={`text-sm font-medium transition ${r.helpful === false ? 'text-red-600' : 'text-gray-400 hover:text-red-600'}`}
-                    >
-                      👎 Not Helpful
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    {r.website && (
+                  {r.summary && (
+                    <p className="text-gray-500 text-xs mb-1">{r.summary}</p>
+                  )}
+                  <p className="text-gray-600 text-sm"><strong>AI Reason:</strong> {r.reason}</p>
+                  {r.helpful_quote && (
+                    <p className="text-orange-700 text-sm italic bg-orange-50 p-2 rounded border border-orange-100">
+                      "{r.helpful_quote}"
+                    </p>
+                  )}
+                  
+                  {/* Feedback Buttons, Menu & Directions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-100">
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          submitFeedback(r.id, true);
+                        }}
+                        className={`text-sm font-medium transition ${r.helpful === true ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                      >
+                        👍 Helpful
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          submitFeedback(r.id, false);
+                        }}
+                        className={`text-sm font-medium transition ${r.helpful === false ? 'text-red-600' : 'text-gray-400 hover:text-red-600'}`}
+                      >
+                        👎 Not Helpful
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      {r.website && (
+                        <a
+                          href={r.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 hover:text-orange-700 bg-gray-50 hover:bg-orange-50 px-2.5 py-1 rounded-md border border-gray-200 transition cursor-pointer"
+                          title="View Restaurant Website & Menu"
+                        >
+                          <span>📖</span>
+                          <span>Menu / Web</span>
+                        </a>
+                      )}
                       <a
-                        href={r.website}
+                        href={
+                          r.place_id
+                            ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name)}&query_place_id=${r.place_id}`
+                            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name + ' ' + (location || ''))}`
+                        }
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 hover:text-orange-700 bg-gray-50 hover:bg-orange-50 px-2.5 py-1 rounded-md border border-gray-200 transition cursor-pointer"
-                        title="View Restaurant Website & Menu"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition cursor-pointer"
+                        title="Open on Google Maps & Get Directions"
                       >
-                        <span>📖</span>
-                        <span>Menu / Web</span>
+                        <span>📍</span>
+                        <span>Directions</span>
                       </a>
-                    )}
-                    <a
-                      href={
-                        r.place_id
-                          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name)}&query_place_id=${r.place_id}`
-                          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name + ' ' + (location || ''))}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition cursor-pointer"
-                      title="Open on Google Maps & Get Directions"
-                    >
-                      <span>📍</span>
-                      <span>Directions</span>
-                    </a>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </main>
 
