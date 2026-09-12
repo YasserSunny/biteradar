@@ -18,7 +18,7 @@ from database import engine, get_db
 # Create DB tables
 models.Base.metadata.create_all(bind=engine)
 
-load_dotenv()
+load_dotenv(override=True)
 
 app = FastAPI(title="biteradar API")
 
@@ -34,6 +34,7 @@ app.add_middleware(
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 YELP_API_KEY = os.getenv("YELP_API_KEY")
+print("LOADED YELP KEY:", YELP_API_KEY[:10] if YELP_API_KEY else "NONE")
 
 gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else None
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -161,10 +162,11 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     headers = {"Authorization": f"Bearer {YELP_API_KEY}"}
                     search_url = "https://api.yelp.com/v3/businesses/search"
                     params = {"term": name, "latitude": lat, "longitude": lng, "limit": 1}
-                    y_res = requests.get(search_url, headers=headers).json()
+                    y_res = requests.get(search_url, headers=headers, params=params).json()
                     
                     if y_res.get("businesses"):
                         yelp_id = y_res["businesses"][0]["id"]
+                        print(f"Yelp matched {name} to {yelp_id}")
                         
                         # Use GraphQL for reviews since Developer Beta was required
                         graphql_url = "https://api.yelp.com/v3/graphql"
@@ -175,6 +177,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         query = '{ business(id: "' + yelp_id + '") { reviews { text rating user { name } } } }'
                         
                         yr_res = requests.post(graphql_url, headers=gql_headers, data=query).json()
+                        
+                        if "errors" in yr_res:
+                            print("Yelp GraphQL Error:", yr_res["errors"])
                         
                         business_data = yr_res.get("data", {}).get("business") or {}
                         for r in business_data.get("reviews", []):
