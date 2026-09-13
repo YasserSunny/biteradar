@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, Marker, InfoWindow, useMap } from '@vis.gl/react-google-maps';
 import { Autocomplete } from "../components/Autocomplete";
 import { ProfileModal } from "../components/ProfileModal";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -22,6 +22,55 @@ interface SearchHistoryItem {
   dish_name: string;
   location: string;
   created_at: string;
+}
+
+/**
+ * Handles Google Maps viewport resize and recentering
+ * when toggling between List and Map views on mobile.
+ */
+function MapResizeTrigger({
+  activeTab,
+  center,
+}: {
+  activeTab: string;
+  center: { lat: number; lng: number };
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+
+    const triggerResize = () => {
+      const div = map.getDiv();
+      if (div && div.clientWidth > 0 && div.clientHeight > 0) {
+        if (typeof window !== "undefined" && (window as any).google?.maps?.event) {
+          (window as any).google.maps.event.trigger(map, "resize");
+        }
+        map.setCenter(center);
+      }
+    };
+
+    triggerResize();
+    const t1 = setTimeout(triggerResize, 100);
+    const t2 = setTimeout(triggerResize, 350);
+
+    const div = map.getDiv();
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && div) {
+      ro = new ResizeObserver(() => {
+        triggerResize();
+      });
+      ro.observe(div);
+    }
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      if (ro) ro.disconnect();
+    };
+  }, [map, activeTab, center]);
+
+  return null;
 }
 
 export default function Home() {
@@ -50,6 +99,10 @@ export default function Home() {
 
   const handleSelectPlace = (id: string) => {
     setSelectedPlaceId(id);
+    const place = results.find((r) => String(r.id) === id);
+    if (place && place.lat && place.lng) {
+      setMapCenter({ lat: place.lat, lng: place.lng });
+    }
     const card = document.getElementById(`restaurant-card-${id}`);
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -333,7 +386,9 @@ export default function Home() {
     }
   };
 
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+  const apiKey =
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    "AIzaSyCpHZeYOSoE3Mn4kszP8dKdNKcs4edWzIw";
 
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50"><p>Loading...</p></div>;
@@ -510,10 +565,10 @@ export default function Home() {
         </div>
 
         {/* Main Content Area */}
-        <main className="flex-1 w-full max-w-7xl p-4 md:p-6 flex flex-col md:flex-row gap-6">
+        <main className="flex-1 w-full max-w-7xl p-3 sm:p-4 md:p-6 flex flex-col md:flex-row gap-4 md:gap-6">
           {/* Map Area */}
-          <div className={`flex-1 rounded-xl overflow-hidden shadow-inner min-h-[450px] md:min-h-[600px] border border-gray-300 relative ${
-            mobileTab === 'map' ? 'block' : 'hidden md:block'
+          <div className={`w-full flex-1 rounded-2xl overflow-hidden shadow-inner border border-gray-300 relative transition-all duration-200 ${
+            mobileTab === 'map' ? 'h-[calc(100dvh-270px)] min-h-[420px] block' : 'hidden md:block md:h-[650px] md:min-h-[600px]'
           }`}>
             {!apiKey && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-200 bg-opacity-90">
@@ -524,12 +579,18 @@ export default function Home() {
               </div>
             )}
             <Map 
+              style={{ width: '100%', height: '100%' }}
               defaultZoom={13} 
               center={mapCenter} 
               onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
               gestureHandling={'greedy'} 
-              disableDefaultUI={true}
+              disableDefaultUI={false}
+              zoomControl={true}
+              mapTypeControl={false}
+              streetViewControl={false}
+              fullscreenControl={false}
             >
+              <MapResizeTrigger activeTab={mobileTab} center={mapCenter} />
               {results.map((r, i) => (
                 <Marker 
                   key={r.id} 
@@ -584,6 +645,20 @@ export default function Home() {
                     ) : null}
 
                     <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileTab('list');
+                          const card = document.getElementById(`restaurant-card-${selectedPlace.id}`);
+                          if (card) {
+                            setTimeout(() => card.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+                          }
+                        }}
+                        className="md:hidden text-[11px] font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 cursor-pointer"
+                        title="View details in List"
+                      >
+                        📋 List
+                      </button>
                       {selectedPlace.website && (
                         <a
                           href={selectedPlace.website}
@@ -615,7 +690,7 @@ export default function Home() {
           </div>
 
           {/* Results List */}
-          <div className={`w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto max-h-[600px] ${
+          <div className={`w-full md:w-1/3 flex flex-col gap-4 md:overflow-y-auto md:max-h-[650px] ${
             mobileTab === 'list' ? 'block' : 'hidden md:flex'
           }`}>
             <h2 className="text-xl font-bold text-gray-800 mb-2">Results</h2>
@@ -717,8 +792,7 @@ export default function Home() {
                   key={r.id} 
                   id={`restaurant-card-${r.id}`}
                   onClick={() => {
-                    setSelectedPlaceId(String(r.id));
-                    setMapCenter({ lat: r.lat, lng: r.lng });
+                    handleSelectPlace(String(r.id));
                   }}
                   onMouseEnter={() => {
                     setSelectedPlaceId(String(r.id));
@@ -792,6 +866,19 @@ export default function Home() {
                       </button>
                     </div>
                     <div className="flex items-center gap-1.5 ml-auto">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectPlace(String(r.id));
+                          setMobileTab('map');
+                        }}
+                        className="md:hidden inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200 transition cursor-pointer"
+                        title="View on Map"
+                      >
+                        <span>🗺️</span>
+                        <span>Map</span>
+                      </button>
                       {r.website && (
                         <a
                           href={r.website}
