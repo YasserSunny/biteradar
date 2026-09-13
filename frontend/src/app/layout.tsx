@@ -17,11 +17,11 @@ export const metadata: Metadata = {
   description: "Find the best dish in town, ranked by Gemini AI with authentic customer reviews and sentiment.",
   icons: {
     icon: [
-      { url: "/icon.png", sizes: "64x64", type: "image/png" },
-      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/icon.png?v=2", sizes: "128x128", type: "image/png" },
+      { url: "/favicon.ico?v=2", sizes: "32x32" },
     ],
-    shortcut: "/favicon.ico",
-    apple: "/icon.png",
+    shortcut: "/favicon.ico?v=2",
+    apple: "/icon.png?v=2",
   },
 };
 
