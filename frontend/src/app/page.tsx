@@ -5,6 +5,7 @@ import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps'
 import { Autocomplete } from "../components/Autocomplete";
 import { ProfileModal } from "../components/ProfileModal";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { Logo } from "../components/Logo";
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { API_BASE_URL } from "@/lib/api";
@@ -341,9 +342,11 @@ export default function Home() {
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-        <div className="bg-white p-8 rounded-xl shadow-md flex flex-col items-center max-w-md w-full">
-          <h1 className="text-4xl font-bold text-orange-600 mb-2">biteradar</h1>
-          <p className="text-gray-500 mb-8 text-center">Find the best dish in town, ranked by AI.</p>
+        <div className="bg-white p-8 rounded-2xl shadow-md flex flex-col items-center max-w-md w-full border border-gray-100">
+          <div className="mb-2">
+            <Logo size="lg" orientation="vertical" showTagline={true} />
+          </div>
+          <p className="text-gray-500 mb-8 text-center text-sm mt-2">Find the best dish in town, ranked by AI.</p>
           <button 
             onClick={handleLogin}
             className="w-full bg-white border border-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-50 transition flex items-center justify-center gap-2"
@@ -383,7 +386,9 @@ export default function Home() {
               <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium">Logout</button>
             </div>
             
-            <h1 className="text-3xl font-bold text-orange-600 mb-6">biteradar</h1>
+            <div className="mb-6 flex justify-center">
+              <Logo size="md" orientation="horizontal" />
+            </div>
 
             {/* Error Banner */}
             {errorBanner && (
