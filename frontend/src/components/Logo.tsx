@@ -28,7 +28,7 @@ export function Logo({
       }`}
     >
       <div
-        className="relative shrink-0 rounded-2xl p-1 bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-transparent border border-orange-200/60 shadow-xs transition-transform hover:scale-105 duration-200"
+        className="relative shrink-0 rounded-2xl p-1 bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-red-500/5 border border-orange-200/60 hover:border-red-300/80 shadow-xs transition-all duration-200 hover:scale-105"
         style={{ width: imgSize + 8, height: imgSize + 8 }}
       >
         <Image
