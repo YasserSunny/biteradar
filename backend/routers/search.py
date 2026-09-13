@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Optional
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -9,10 +10,23 @@ from schemas import SearchRequest, RestaurantResult, FeedbackRequest
 from config import gmaps, ai_client
 from services.places_service import geocode_location, search_candidate_restaurants, fetch_place_details
 from services.yelp_service import fetch_yelp_details_and_reviews
+from services.foursquare_service import fetch_foursquare_tips
+from services.osm_service import fetch_osm_amenities_and_dietary
+from services.menu_service import fetch_dish_pricing_and_menu
 from services.ai_service import rank_restaurants_with_gemini
 from logger import get_logger
 
 logger = get_logger("routers.search")
+
+def _parse_json_list(val: Optional[str]) -> List[str]:
+    """Safely decode JSON list string from database."""
+    if not val:
+        return []
+    try:
+        parsed = json.loads(val)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
 
 router = APIRouter(prefix="/api", tags=["search"])
 
@@ -58,6 +72,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     rating=r.rating,
                     total_reviews=r.total_reviews,
                     price_level=r.price_level,
+                    dish_price=r.dish_price,
+                    dietary_tags=_parse_json_list(r.dietary_tags),
+                    amenities=_parse_json_list(r.amenities),
                     summary=r.summary,
                     open_now=r.open_now,
                     website=r.website,
@@ -192,18 +209,55 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         except Exception:
                             db.rollback()
 
+                # Foursquare tips & metadata
+                fsq_data = fetch_foursquare_tips(name, lat, lng)
+                foursquare_tips = []
+                for tip in fsq_data.get("tips", []):
+                    tip_text = tip.get("text")
+                    if tip_text:
+                        foursquare_tips.append(tip_text)
+                        try:
+                            exists = db.query(models.Review).filter(
+                                models.Review.place_id == place_id,
+                                models.Review.text == tip_text
+                            ).first()
+                            if not exists:
+                                db.add(models.Review(
+                                    place_id=place_id,
+                                    source="foursquare",
+                                    author_name="Foursquare Diner",
+                                    rating=None,
+                                    text=tip_text
+                                ))
+                                db.commit()
+                        except Exception:
+                            db.rollback()
+
+                # OpenStreetMap community tags (dietary & amenities)
+                osm_data = fetch_osm_amenities_and_dietary(lat, lng, restaurant_name=name)
+                dietary_tags = osm_data.get("dietary_tags", [])
+                amenities = osm_data.get("amenities", [])
+
+                # Itemized dish pricing & menu details
+                menu_data = fetch_dish_pricing_and_menu(dish, name, lat, lng, price_level=price_str)
+                dish_price = menu_data.get("dish_price")
+
                 restaurant_data.append({
                     "place_id": place_id,
                     "name": name,
                     "rating": rating,
                     "total_reviews": total_reviews,
                     "price_level": price_str,
+                    "dish_price": dish_price,
+                    "dietary_tags": dietary_tags,
+                    "amenities": amenities,
                     "summary": summary_text,
                     "open_now": open_now,
                     "website": website,
                     "lat": lat,
                     "lng": lng,
-                    "reviews": all_review_texts
+                    "reviews": all_review_texts,
+                    "foursquare_tips": foursquare_tips
                 })
             except Exception as e:
                 logger.error(f"Error processing candidate place: {e}", exc_info=True)
@@ -232,6 +286,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         rating=r_data["rating"],
                         total_reviews=r_data["total_reviews"],
                         price_level=r_data.get("price_level"),
+                        dish_price=r_data.get("dish_price"),
+                        dietary_tags=json.dumps(r_data.get("dietary_tags", [])) if r_data.get("dietary_tags") else None,
+                        amenities=json.dumps(r_data.get("amenities", [])) if r_data.get("amenities") else None,
                         summary=r_data.get("summary"),
                         open_now=r_data.get("open_now"),
                         website=r_data.get("website"),
@@ -256,6 +313,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         rating=r_data["rating"],
                         total_reviews=r_data["total_reviews"],
                         price_level=r_data.get("price_level"),
+                        dish_price=r_data.get("dish_price"),
+                        dietary_tags=r_data.get("dietary_tags", []),
+                        amenities=r_data.get("amenities", []),
                         summary=r_data.get("summary"),
                         open_now=r_data.get("open_now"),
                         website=r_data.get("website"),
@@ -311,6 +371,9 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
                 rating=r.rating,
                 total_reviews=r.total_reviews,
                 price_level=r.price_level,
+                dish_price=r.dish_price,
+                dietary_tags=_parse_json_list(r.dietary_tags),
+                amenities=_parse_json_list(r.amenities),
                 summary=r.summary,
                 open_now=r.open_now,
                 website=r.website,

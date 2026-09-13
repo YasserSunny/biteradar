@@ -40,6 +40,9 @@ class RestaurantResult(BaseModel):
     lat: float
     lng: float
     helpful: Optional[bool] = None
+    dietary_tags: Optional[List[str]] = []
+    amenities: Optional[List[str]] = []
+    dish_price: Optional[str] = None
 
 class FeedbackRequest(BaseModel):
     recommendation_id: int

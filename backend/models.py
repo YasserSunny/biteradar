@@ -59,6 +59,11 @@ class Recommendation(Base):
     # Feedback fields
     helpful = Column(Boolean, nullable=True)
 
+    # Phase 4 Expanded Data Attributes
+    dietary_tags = Column(String, nullable=True)  # JSON string list e.g. '["Halal", "Vegan Friendly"]'
+    amenities = Column(String, nullable=True)     # JSON string list e.g. '["Outdoor Seating"]'
+    dish_price = Column(String, nullable=True)    # e.g. "$16.50" or "~$15 - $22"
+
     query = relationship("SearchQuery", back_populates="recommendations")
 
 

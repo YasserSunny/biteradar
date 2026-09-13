@@ -70,14 +70,14 @@ This document tracks completed milestones and outlines upcoming features, infras
 
 ## 🌐 Phase 4: Strategic Data Source Expansions
 
-- [ ] **Foursquare Places API Integration (Dish Tips & Free Credits)**
+- [x] **Foursquare Places API Integration (Dish Tips & Free Credits)**
   - Tap into Foursquare's dedicated **"Tips"** endpoint (punchy, dish-specific recommendations written by diners).
   - Supplies Gemini with cleaner, denser dish signals compared to multi-paragraph reviews.
   - Takes advantage of Foursquare's recurring **$200/month free credit** to double our data intelligence at $0 cost.
-- [ ] **Itemized Menus & Dish Pricing (Documenu / Delivery Feeds)**
+- [x] **Itemized Menus & Dish Pricing (Documenu / Delivery Feeds)**
   - Integrate Documenu or delivery platform feeds (DoorDash/UberEats) to surface exact dish prices (e.g. `Spicy Tonkotsu Ramen - $17.50`) and full ingredient descriptions directly on cards.
   - Bridges the gap between generic restaurant ratings and exact dish costs.
-- [ ] **OpenStreetMap (OSM) Integration for Zero-Cost Dietary & Amenity Tags**
+- [x] **OpenStreetMap (OSM) Integration for Zero-Cost Dietary & Amenity Tags**
   - Use Overpass API / Overture Maps to query community-verified tags (`diet:vegan=yes`, `diet:halal=yes`, `diet:gluten_free=yes`, `outdoor_seating=yes`, `wheelchair=yes`).
   - Provides unmetered, completely free dietary and amenity verification with zero third-party API costs or rate limits.
 

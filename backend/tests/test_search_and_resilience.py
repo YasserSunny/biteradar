@@ -253,5 +253,84 @@ class TestSearchAndResilience(unittest.TestCase):
         res_404 = self.client.get("/api/queries/99999/recommendations")
         self.assertEqual(res_404.status_code, 404)
 
+    @patch("routers.search.geocode_location")
+    @patch("routers.search.search_candidate_restaurants")
+    @patch("routers.search.fetch_place_details")
+    @patch("routers.search.fetch_yelp_details_and_reviews")
+    @patch("routers.search.fetch_foursquare_tips")
+    @patch("routers.search.fetch_osm_amenities_and_dietary")
+    @patch("routers.search.fetch_dish_pricing_and_menu")
+    @patch("routers.search.rank_restaurants_with_gemini")
+    def test_search_phase_4_data_enrichment(
+        self,
+        mock_rank,
+        mock_menu,
+        mock_osm,
+        mock_fsq,
+        mock_yelp,
+        mock_details,
+        mock_search_places,
+        mock_geocode
+    ):
+        """Verify that Foursquare tips, OSM tags, and menu pricing enrich the search response."""
+        mock_geocode.return_value = {"lat": 40.75, "lng": -73.98}
+        mock_search_places.return_value = [{"place_id": "nyc_halal_1", "name": "The Halal Guys"}]
+        mock_details.return_value = {
+            "name": "The Halal Guys",
+            "rating": 4.5,
+            "user_ratings_total": 8500,
+            "price_level": 1,
+            "editorial_summary": {"overview": "World-famous American Halal food cart"},
+            "opening_hours": {"open_now": True},
+            "website": "https://thehalalguys.com",
+            "geometry": {"location": {"lat": 40.76, "lng": -73.98}},
+            "reviews": [{"text": "Get the chicken and gyro combo platter!"}]
+        }
+        mock_yelp.return_value = {"price": "$", "categories": ["Middle Eastern", "Halal"], "reviews": []}
+        mock_fsq.return_value = {
+            "fsq_id": "fsq_halal_1",
+            "tips": [{"text": "Be careful with the red hot sauce, it's fiery!", "created_at": "2024-01-01"}]
+        }
+        mock_osm.return_value = {
+            "dietary_tags": ["Halal"],
+            "amenities": ["Outdoor Seating", "Takeout"]
+        }
+        mock_menu.return_value = {
+            "dish_price": "$12.99",
+            "menu_item_name": "Chicken & Gyro Combo Platter"
+        }
+        mock_rank.return_value = [
+            {
+                "index": 0,
+                "reason": "Iconic cart famous for legendary platters and white sauce.",
+                "helpful_quote": "Get the chicken and gyro combo platter!"
+            }
+        ]
+
+        res = self.client.post("/api/search", json={"dish_name": "Chicken and Rice", "location": "New York"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        item = data[0]
+        self.assertEqual(item["name"], "The Halal Guys")
+        self.assertEqual(item["dish_price"], "$12.99")
+        self.assertIn("Halal", item["dietary_tags"])
+        self.assertIn("Outdoor Seating", item["amenities"])
+
+        # Check DB persistence
+        db_rec = self.db.query(models.Recommendation).filter(models.Recommendation.place_id == "nyc_halal_1").first()
+        self.assertIsNotNone(db_rec)
+        self.assertEqual(db_rec.dish_price, "$12.99")
+        self.assertIn("Halal", db_rec.dietary_tags)
+        self.assertIn("Outdoor Seating", db_rec.amenities)
+
+        # Check Foursquare review saved to Review table
+        fsq_review = self.db.query(models.Review).filter(
+            models.Review.place_id == "nyc_halal_1",
+            models.Review.source == "foursquare"
+        ).first()
+        self.assertIsNotNone(fsq_review)
+        self.assertIn("red hot sauce", fsq_review.text)
+
 if __name__ == "__main__":
     unittest.main()

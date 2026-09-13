@@ -24,6 +24,26 @@ interface SearchHistoryItem {
   created_at: string;
 }
 
+interface Restaurant {
+  id: string;
+  place_id: string;
+  name: string;
+  rating: number;
+  total_reviews: number;
+  price_level?: string;
+  dish_price?: string;
+  dietary_tags?: string[];
+  amenities?: string[];
+  summary?: string;
+  open_now?: boolean;
+  website?: string;
+  reason: string;
+  helpful_quote?: string;
+  lat: number;
+  lng: number;
+  helpful?: boolean | null;
+}
+
 /**
  * Handles Google Maps viewport resize and recentering
  * when toggling between List and Map views on mobile.
@@ -76,7 +96,7 @@ function MapResizeTrigger({
 export default function Home() {
   const [dishName, setDishName] = useState("");
   const [location, setLocation] = useState("");
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -616,11 +636,16 @@ export default function Home() {
                         <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                           ★ {selectedPlace.rating} ({selectedPlace.total_reviews})
                         </span>
-                        {selectedPlace.price_level && (
+                        {selectedPlace.dish_price ? (
+                          <span className="text-amber-900 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded font-bold text-[10px] inline-flex items-center gap-0.5" title="Dish price estimate">
+                            <span>🏷️</span>
+                            <span>{selectedPlace.dish_price}</span>
+                          </span>
+                        ) : selectedPlace.price_level ? (
                           <span className="text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded font-medium">
                             {selectedPlace.price_level}
                           </span>
-                        )}
+                        ) : null}
                         {selectedPlace.open_now !== undefined && selectedPlace.open_now !== null && (
                           <span className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] inline-flex items-center gap-1 ${
                             selectedPlace.open_now 
@@ -632,6 +657,20 @@ export default function Home() {
                           </span>
                         )}
                       </div>
+                      {((selectedPlace.dietary_tags && selectedPlace.dietary_tags.length > 0) || (selectedPlace.amenities && selectedPlace.amenities.length > 0)) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedPlace.dietary_tags?.slice(0, 2).map((tag) => (
+                            <span key={tag} className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full font-semibold">
+                              {tag}
+                            </span>
+                          ))}
+                          {selectedPlace.amenities?.slice(0, 2).map((amenity) => (
+                            <span key={amenity} className="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded-full font-semibold">
+                              {amenity}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {selectedPlace.helpful_quote ? (
@@ -816,11 +855,16 @@ export default function Home() {
                       <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
                         ★ {r.rating} ({r.total_reviews} reviews)
                       </span>
-                      {r.price_level && (
+                      {r.dish_price ? (
+                        <span className="bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold px-2 py-1 rounded flex items-center gap-1" title="Estimated or Menu Dish Price">
+                          <span>🏷️</span>
+                          <span>{r.dish_price}</span>
+                        </span>
+                      ) : r.price_level ? (
                         <span className="bg-gray-100 text-gray-800 text-xs font-bold px-2 py-1 rounded">
                           {r.price_level}
                         </span>
-                      )}
+                      ) : null}
                       {r.open_now !== undefined && r.open_now !== null && (
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                           r.open_now 
@@ -833,6 +877,30 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+
+                  {/* Dietary & Amenity Tags (OSM & Community Verified) */}
+                  {((r.dietary_tags && r.dietary_tags.length > 0) || (r.amenities && r.amenities.length > 0)) && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {r.dietary_tags?.map((tag) => (
+                        <span 
+                          key={tag} 
+                          className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                        >
+                          <span>{tag.toLowerCase().includes('vegan') || tag.toLowerCase().includes('veg') ? '🌱' : tag.toLowerCase().includes('halal') ? '🥩' : tag.toLowerCase().includes('kosher') ? '✡️' : '🌾'}</span>
+                          <span>{tag}</span>
+                        </span>
+                      ))}
+                      {r.amenities?.map((amenity) => (
+                        <span 
+                          key={amenity} 
+                          className="bg-blue-50 text-blue-800 border border-blue-200 text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                        >
+                          <span>{amenity.toLowerCase().includes('outdoor') ? '☀️' : amenity.toLowerCase().includes('wheelchair') ? '♿' : amenity.toLowerCase().includes('delivery') ? '🛵' : '🥡'}</span>
+                          <span>{amenity}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {r.summary && (
                     <p className="text-gray-500 text-xs mb-1">{r.summary}</p>
                   )}
