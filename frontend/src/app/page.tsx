@@ -10,6 +10,14 @@ import { AuthCard } from "../components/AuthCard";
 import { auth } from '../firebase';
 import { signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { API_BASE_URL } from "@/lib/api";
+import InsightsModal from "../components/InsightsModal";
+import {
+  trackSearch,
+  trackCardAction,
+  trackFeedback,
+  trackConciergeInquiry,
+  trackTrendingCraveClick
+} from "../lib/analytics";
 
 interface UserProfileData {
   name: string;
@@ -151,6 +159,7 @@ export default function Home() {
   // Profile & History State
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const [isFirstTimeProfile, setIsFirstTimeProfile] = useState(false);
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [searchStep, setSearchStep] = useState<number | null>(null);
@@ -196,6 +205,16 @@ export default function Home() {
     setSelectedDietary((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
+  };
+
+  const handleSelectTrend = (dish: string, loc?: string) => {
+    const targetLoc = loc || location || "New York";
+    setDishName(dish);
+    if (loc) {
+      setLocation(loc);
+      setSelectedCoords(null);
+    }
+    executeSearch(dish, targetLoc);
   };
 
   const selectedPlace = results.find((r) => String(r.id) === selectedPlaceId);
@@ -418,6 +437,8 @@ export default function Home() {
         searchPayload.lng = selectedCoords.lng;
       }
 
+      trackSearch(finalDish, finalLocation, finalDietary, finalPrice || undefined, finalRadius || undefined);
+
       const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: {
@@ -482,6 +503,8 @@ export default function Home() {
     setChatMessages(newHistory);
     setChatInput("");
     setChatLoading(true);
+
+    trackConciergeInquiry(qId, text.length);
 
     try {
       const payload = {
@@ -634,6 +657,7 @@ export default function Home() {
 
   const submitFeedback = async (id: string, helpful: boolean) => {
     try {
+      trackFeedback(id, helpful);
       await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
         headers: {
@@ -673,20 +697,28 @@ export default function Home() {
         <div className="min-h-screen bg-gray-50 flex flex-col items-center">
           {/* Header / Search Bar */}
           <header className="w-full bg-white shadow-sm p-6 flex flex-col items-center relative">
-            <div className="absolute right-6 top-6 flex items-center gap-3">
+            <div className="absolute right-6 top-6 flex items-center gap-2.5">
+              <button
+                onClick={() => setIsInsightsOpen(true)}
+                className="text-xs font-semibold text-slate-700 bg-orange-50/80 hover:bg-orange-100 text-orange-700 py-1.5 px-3 rounded-full border border-orange-200/90 transition flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
+                title="View community food radar insights & trends"
+              >
+                <span>📊</span>
+                <span className="hidden sm:inline">Radar Insights</span>
+              </button>
               <button
                 onClick={() => {
                   setIsFirstTimeProfile(false);
                   setIsProfileModalOpen(true);
                 }}
-                className="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 py-1.5 px-3 rounded-full border border-gray-200 transition flex items-center gap-1.5"
+                className="text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 py-1.5 px-3 rounded-full border border-gray-200 transition flex items-center gap-1.5 cursor-pointer"
                 title="Edit food preferences"
               >
                 <span>👤</span>
                 <span>{profile?.name || user.displayName || user.email}</span>
                 <span className="text-gray-400 text-[10px]">⚙️</span>
               </button>
-              <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium">Logout</button>
+              <button onClick={handleLogout} className="text-xs text-red-600 hover:underline font-medium cursor-pointer">Logout</button>
             </div>
             
             <div className="mb-6 flex justify-center">
@@ -877,6 +909,7 @@ export default function Home() {
                   key={dish.id}
                   type="button"
                   onClick={() => {
+                    trackTrendingCraveClick(dish.name);
                     setDishName(dish.name);
                     executeSearch(dish.name, location || "New York");
                   }}
@@ -1362,7 +1395,10 @@ export default function Home() {
                           href={r.delivery_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackCardAction("order", r.name, r.place_id);
+                          }}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 transition cursor-pointer"
                           title="Order Delivery (Uber Eats / DoorDash)"
                         >
@@ -1375,7 +1411,10 @@ export default function Home() {
                           href={r.reservation_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackCardAction("reserve", r.name, r.place_id);
+                          }}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200 transition cursor-pointer"
                           title="Reserve Table (OpenTable)"
                         >
@@ -1388,7 +1427,10 @@ export default function Home() {
                           href={r.website}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackCardAction("menu", r.name, r.place_id);
+                          }}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 hover:text-orange-700 bg-gray-50 hover:bg-orange-50 px-2.5 py-1 rounded-md border border-gray-200 transition cursor-pointer"
                           title="View Restaurant Website & Menu"
                         >
@@ -1400,6 +1442,7 @@ export default function Home() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          trackCardAction("share", r.name, r.place_id);
                           handleShare(dishName, location, r.name);
                         }}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 transition cursor-pointer active:scale-95"
@@ -1416,7 +1459,10 @@ export default function Home() {
                         }
                         target="_blank"
                         rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          trackCardAction("directions", r.name, r.place_id);
+                        }}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-md border border-orange-200 transition cursor-pointer"
                         title="Open on Google Maps & Get Directions"
                       >
@@ -1555,6 +1601,13 @@ export default function Home() {
             onClose={() => setIsProfileModalOpen(false)}
           />
         )}
+
+        {/* Community Radar Insights & Trends Modal */}
+        <InsightsModal
+          isOpen={isInsightsOpen}
+          onClose={() => setIsInsightsOpen(false)}
+          onSelectTrend={handleSelectTrend}
+        />
         </div>
       </APIProvider>
     </ErrorBoundary>

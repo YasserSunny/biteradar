@@ -80,16 +80,16 @@ This document tracks completed milestones and outlines upcoming features, infras
 
 ---
 
-## 📊 Phase 3: Analytics & User Insights
+## 📊 Phase 3: Analytics & User Insights [COMPLETED]
 
-- [ ] **Privacy-Friendly Web Analytics**
-  - Integrate Google Analytics 4, Plausible, or PostHog.
-  - Track user search conversion, popular dish keywords, and filter usage without collecting invasive PII.
-- [ ] **User Feedback & Curation Analytics**
-  - Dashboard to monitor thumbs up / thumbs down recommendations.
-  - Identify search queries where users felt recommendations were missing or exceptionally good.
-- [ ] **Trending Food Radar**
-  - "What's trending today in [City]" section highlighting dishes frequently searched by local users.
+- [x] **Privacy-Friendly Web Analytics (Google Analytics 4 / Firebase)**
+  - Initialized SSR-safe Firebase Analytics (`isSupported()`) with measurement ID `G-R6K60N1N98`.
+  - Non-PII event telemetry for searches, filter configurations, booking/ordering action clicks, feedback ratings, and AI concierge inquiries.
+- [x] **User Feedback & Curation Analytics**
+  - Backend endpoint `GET /api/analytics/summary` aggregating community satisfaction scores (% positive thumbs-up ratio), total searches, cataloged dishes, and highest-approved restaurant gems.
+- [x] **Trending Food Radar & City Explorer**
+  - Backend endpoint `GET /api/analytics/trending-by-city` tracking dish popularity grouped by city location.
+  - Interactive in-app "📊 Radar Insights" dashboard modal with Platform Vitals and City Food Radar search launcher.
 
 ---
 
