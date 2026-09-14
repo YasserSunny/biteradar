@@ -10,7 +10,7 @@ _foursquare_auth_invalid = False
 
 def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
     """
-    Search for a matching place on Foursquare Places API v3 and fetch diner tips.
+    Search for a matching place on Foursquare Places API and fetch diner tips.
     Returns a dictionary containing fsq_id, tips list, and categories.
     Fails silently and gracefully if FOURSQUARE_API_KEY is missing, invalid, or times out.
     """
@@ -25,14 +25,19 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
     if not FOURSQUARE_API_KEY or _foursquare_auth_invalid:
         return result
 
+    raw_key = FOURSQUARE_API_KEY.strip()
+    # Foursquare Places API expects 'Bearer <token>' or raw token
+    auth_header = raw_key if raw_key.lower().startswith("bearer ") else f"Bearer {raw_key}"
     headers = {
         "Accept": "application/json",
-        "Authorization": FOURSQUARE_API_KEY.strip()
+        "Authorization": auth_header,
+        "X-Places-Api-Version": "2025-06-17",
+        "User-Agent": "BiteRadar/1.0 (https://biteradar.fyi)"
     }
 
     try:
-        # 1. Search candidate by name and location
-        search_url = "https://api.foursquare.com/v3/places/search"
+        # 1. Search candidate by name and location using modern Places API
+        search_url = "https://places-api.foursquare.com/places/search"
         search_params = {
             "query": name,
             "ll": f"{lat},{lng}",
@@ -40,17 +45,19 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
             "limit": 1
         }
 
-        resp = requests.get(search_url, headers=headers, params=search_params, timeout=2.5)
+        # Use stream=True so that if the CDN drops the connection on 401/403,
+        # we read the status code cleanly without crashing with ChunkedEncodingError/IncompleteRead
+        resp = requests.get(search_url, headers=headers, params=search_params, stream=True, timeout=3.0)
         if resp.status_code in (401, 403):
             _foursquare_auth_invalid = True
             logger.warning(
-                f"Foursquare API key rejected (HTTP {resp.status_code}): {resp.text[:120]}. "
-                "Note: Foursquare API v3 keys typically start with 'fsq3'. "
+                f"Foursquare API key rejected (HTTP {resp.status_code}). "
+                "Please verify your key and project permissions in the Foursquare Developer Console. "
                 "Skipping remaining Foursquare queries for this session."
             )
             return result
         elif resp.status_code != 200:
-            logger.warning(f"Foursquare search failed for '{name}' (HTTP {resp.status_code}): {resp.text[:150]}")
+            logger.warning(f"Foursquare search failed for '{name}' (HTTP {resp.status_code})")
             return result
 
         data = resp.json()
@@ -60,7 +67,7 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
             return result
 
         place = results[0]
-        fsq_id = place.get("fsq_id")
+        fsq_id = place.get("fsq_place_id") or place.get("fsq_id")
         if not fsq_id:
             return result
 
@@ -68,21 +75,22 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
         result["categories"] = [c.get("name") for c in place.get("categories", []) if c.get("name")]
 
         # 2. Fetch tips for matched place
-        tips_url = f"https://api.foursquare.com/v3/places/{fsq_id}/tips"
+        tips_url = f"https://places-api.foursquare.com/places/{fsq_id}/tips"
         tips_params = {"limit": 5, "sort": "POPULAR"}
 
-        tips_resp = requests.get(tips_url, headers=headers, params=tips_params, timeout=4.0)
+        tips_resp = requests.get(tips_url, headers=headers, params=tips_params, stream=True, timeout=4.0)
         if tips_resp.status_code == 200:
             raw_tips = tips_resp.json()
-            if isinstance(raw_tips, list):
-                for tip in raw_tips:
-                    text = tip.get("text")
-                    if text:
-                        result["tips"].append({
-                            "text": text.strip(),
-                            "created_at": tip.get("created_at")
-                        })
-                logger.info(f"Foursquare enrichment succeeded for '{name}' ({len(result['tips'])} tip(s) fetched)")
+            # The API returns a list of tip objects or an object with 'results'
+            tip_items = raw_tips if isinstance(raw_tips, list) else raw_tips.get("results", [])
+            for tip in tip_items:
+                text = tip.get("text")
+                if text:
+                    result["tips"].append({
+                        "text": text.strip(),
+                        "created_at": tip.get("created_at")
+                    })
+            logger.info(f"Foursquare enrichment succeeded for '{name}' ({len(result['tips'])} tip(s) fetched)")
         else:
             logger.warning(f"Foursquare tips fetch failed for fsq_id '{fsq_id}' (HTTP {tips_resp.status_code})")
 
