@@ -3,14 +3,34 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
 
+class Dish(Base):
+    __tablename__ = "dishes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    normalized_name = Column(String, index=True)
+    cuisine = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    primary_photo_url = Column(String, nullable=True)
+    typical_price_range = Column(String, nullable=True)
+    dietary_attributes = Column(String, default="[]")  # JSON string list
+    search_count = Column(Integer, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_searched_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    queries = relationship("SearchQuery", back_populates="dish")
+
+
 class SearchQuery(Base):
     __tablename__ = "search_queries"
 
     id = Column(Integer, primary_key=True, index=True)
     dish_name = Column(String, index=True)
     location = Column(String, index=True)
+    dish_id = Column(Integer, ForeignKey("dishes.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    dish = relationship("Dish", back_populates="queries")
     recommendations = relationship("Recommendation", back_populates="query")
     history_entries = relationship("SearchHistory", back_populates="query")
 
@@ -63,6 +83,11 @@ class Recommendation(Base):
     dietary_tags = Column(String, nullable=True)  # JSON string list e.g. '["Halal", "Vegan Friendly"]'
     amenities = Column(String, nullable=True)     # JSON string list e.g. '["Outdoor Seating"]'
     dish_price = Column(String, nullable=True)    # e.g. "$16.50" or "~$15 - $22"
+
+    # Phase 5 Visual & Booking Attributes
+    photo_url = Column(String, nullable=True)
+    delivery_url = Column(String, nullable=True)
+    reservation_url = Column(String, nullable=True)
 
     query = relationship("SearchQuery", back_populates="recommendations")
 

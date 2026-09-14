@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 import models
 from database import engine
-from routers import search, profile
+from routers import search, profile, chat
 from logger import get_logger
 
 logger = get_logger("app")
@@ -18,15 +18,23 @@ try:
     logger.info("Database tables verified and initialized successfully.")
     # Safe column migration check for newly added columns
     with engine.connect() as conn:
-        for col_name in ["dietary_tags", "amenities", "dish_price"]:
+        for col_name in ["dietary_tags", "amenities", "dish_price", "photo_url", "delivery_url", "reservation_url"]:
             try:
                 conn.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col_name} VARCHAR"))
                 conn.commit()
                 logger.info(f"Added column '{col_name}' to recommendations table.")
             except Exception:
                 pass  # Column already exists
+
+        try:
+            conn.execute(text("ALTER TABLE search_queries ADD COLUMN dish_id INTEGER"))
+            conn.commit()
+            logger.info("Added column 'dish_id' to search_queries table.")
+        except Exception:
+            pass
 except Exception as e:
     logger.error(f"Error during database table initialization: {e}", exc_info=True)
+
 
 app = FastAPI(
     title="biteradar API",
@@ -88,6 +96,7 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
 # Register route modules
 app.include_router(search.router)
 app.include_router(profile.router)
+app.include_router(chat.router)
 
 @app.get("/health", tags=["system"])
 def health_check():

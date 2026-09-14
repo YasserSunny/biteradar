@@ -25,6 +25,23 @@ interface SearchHistoryItem {
   created_at: string;
 }
 
+interface DishItem {
+  id: number;
+  name: string;
+  cuisine?: string;
+  description?: string;
+  primary_photo_url?: string;
+  typical_price_range?: string;
+  dietary_attributes?: string[];
+  search_count: number;
+}
+
+interface ChatMessage {
+  sender: 'user' | 'assistant';
+  text: string;
+  cited_restaurants?: string[];
+}
+
 interface Restaurant {
   id: string;
   place_id: string;
@@ -43,7 +60,12 @@ interface Restaurant {
   lat: number;
   lng: number;
   helpful?: boolean | null;
+  photo_url?: string;
+  delivery_url?: string;
+  reservation_url?: string;
+  query_id?: number;
 }
+
 
 /**
  * Handles Google Maps viewport resize and recentering
@@ -142,7 +164,42 @@ export default function Home() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
 
+  // Phase 5 Quick Filters & Trending Catalog State
+  const [trendingDishes, setTrendingDishes] = useState<DishItem[]>([]);
+  const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
+  const [selectedPrice, setSelectedPrice] = useState<string | null>(null);
+  const [selectedRadiusKm, setSelectedRadiusKm] = useState<number | null>(null);
+  const [showFilters, setShowFilters] = useState(true);
+
+  // AI Foodie Chat Concierge State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const fetchTrendingDishes = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/dishes/trending?limit=8`);
+      if (res.ok) {
+        const data = await res.json();
+        setTrendingDishes(data);
+      }
+    } catch (err) {
+      console.error("Error fetching trending dishes:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrendingDishes();
+  }, []);
+
+  const toggleDietary = (tag: string) => {
+    setSelectedDietary((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
   const selectedPlace = results.find((r) => String(r.id) === selectedPlaceId);
+
 
   const handleSelectPlace = (id: string) => {
     setSelectedPlaceId(id);
@@ -313,9 +370,18 @@ export default function Home() {
     }
   };
 
-  const executeSearch = async (targetDish: string, targetLocation: string) => {
+  const executeSearch = async (
+    targetDish: string,
+    targetLocation: string,
+    dietaryOverrides?: string[],
+    priceOverride?: string | null,
+    radiusOverride?: number | null
+  ) => {
     const finalDish = targetDish.trim();
     const finalLocation = targetLocation.trim();
+    const finalDietary = dietaryOverrides !== undefined ? dietaryOverrides : selectedDietary;
+    const finalPrice = priceOverride !== undefined ? priceOverride : selectedPrice;
+    const finalRadius = radiusOverride !== undefined ? radiusOverride : selectedRadiusKm;
 
     if (!finalDish) {
       setErrorBanner("Please enter what dish you are craving.");
@@ -333,6 +399,7 @@ export default function Home() {
     setSearchStep(1);
     setResults([]);
     setSelectedPlaceId(null);
+    setChatMessages([]);
 
     const t1 = setTimeout(() => setSearchStep(2), 1600);
     const t2 = setTimeout(() => setSearchStep(3), 3600);
@@ -342,6 +409,9 @@ export default function Home() {
         dish_name: finalDish,
         location: finalLocation,
         user_id: user?.uid,
+        dietary_filters: finalDietary,
+        price_tier: finalPrice,
+        max_distance_km: finalRadius
       };
       if (selectedCoords) {
         searchPayload.lat = selectedCoords.lat;
@@ -361,12 +431,20 @@ export default function Home() {
         throw new Error(errorData.detail || "Failed to get recommendations. Please check your query and try again.");
       }
 
-      const data = await response.json();
+      const data: Restaurant[] = await response.json();
       setResults(data);
       
       if (data.length > 0) {
         setMapCenter({ lat: data[0].lat, lng: data[0].lng });
+        setChatMessages([
+          {
+            sender: 'assistant',
+            text: `Hi! I'm your AI Foodie Concierge for **${finalDish}** in **${finalLocation}**. Ask me anything about these spots—pricing, wait times, vibe, or dietary options!`
+          }
+        ]);
       }
+
+      fetchTrendingDishes();
 
       // Synchronize URL search params and dynamic document title
       if (typeof window !== "undefined") {
@@ -393,6 +471,62 @@ export default function Home() {
       setSearchStep(null);
     }
   };
+
+  const handleSendChat = async (messageText: string) => {
+    const text = messageText.trim();
+    if (!text || chatLoading) return;
+    const qId = results[0]?.query_id;
+    if (!qId) return;
+
+    const newHistory: ChatMessage[] = [...chatMessages, { sender: 'user', text }];
+    setChatMessages(newHistory);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const payload = {
+        query_id: qId,
+        message: text,
+        history: newHistory.map((m) => ({ sender: m.sender, text: m.text }))
+      };
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: data.response,
+            cited_restaurants: data.cited_restaurants || []
+          }
+        ]);
+      } else {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: "I couldn't process that question right now, but feel free to ask another question about these spots!"
+          }
+        ]);
+      }
+    } catch (err) {
+      console.error("Chat error:", err);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: "Sorry, I had trouble reaching the foodie assistant. Please try again in a moment!"
+        }
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
 
   const handleShare = async (dish?: string, loc?: string, placeName?: string) => {
     const targetDish = (dish || dishName).trim();
@@ -614,10 +748,155 @@ export default function Home() {
             </button>
           </form>
 
+          {/* Phase 5 Quick Filters Toolbar (Dietary, Price, Distance Radius) */}
+          <div className="mt-4 flex flex-col gap-2 w-full max-w-3xl">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowFilters(!showFilters)}
+                className="text-xs font-bold text-gray-700 hover:text-orange-600 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <span>🎯</span>
+                <span>{showFilters ? "Hide Filters" : "Show Filters (Dietary, Price, Radius)"}</span>
+                <span className="text-[10px] text-gray-400">{showFilters ? "▲" : "▼"}</span>
+                {(selectedDietary.length > 0 || selectedPrice || selectedRadiusKm) && (
+                  <span className="ml-1 bg-orange-100 text-orange-800 text-[10px] px-1.5 py-0.5 rounded-full font-extrabold">
+                    {selectedDietary.length + (selectedPrice ? 1 : 0) + (selectedRadiusKm ? 1 : 0)} active
+                  </span>
+                )}
+              </button>
+              {(selectedDietary.length > 0 || selectedPrice || selectedRadiusKm) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDietary([]);
+                    setSelectedPrice(null);
+                    setSelectedRadiusKm(null);
+                  }}
+                  className="text-[11px] text-gray-500 hover:text-gray-800 underline cursor-pointer"
+                >
+                  Reset filters
+                </button>
+              )}
+            </div>
+
+            {showFilters && (
+              <div className="bg-white/90 p-3 rounded-xl border border-gray-200 shadow-2xs flex flex-col gap-3 animate-in fade-in duration-200">
+                {/* Dietary Quick Filters */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mr-1">Dietary:</span>
+                  {[
+                    { label: "Vegan", icon: "🌱" },
+                    { label: "Halal", icon: "🥩" },
+                    { label: "Vegetarian", icon: "🥗" },
+                    { label: "Gluten-Free", icon: "🌾" },
+                    { label: "Kosher", icon: "✡️" },
+                    { label: "Dairy-Free", icon: "🥛" }
+                  ].map(({ label, icon }) => {
+                    const isActive = selectedDietary.includes(label);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => toggleDietary(label)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full border transition cursor-pointer ${
+                          isActive
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : "bg-gray-50 text-gray-700 hover:bg-gray-100 border-gray-200"
+                        }`}
+                      >
+                        <span>{icon}</span>
+                        <span>{label}</span>
+                        {isActive && <span className="text-[10px] ml-0.5">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Price Tier & Distance Radius Filters */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
+                  {/* Price Tiers */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mr-1">Price:</span>
+                    {["$", "$$", "$$$", "$$$$"].map((tier) => {
+                      const isActive = selectedPrice === tier;
+                      return (
+                        <button
+                          key={tier}
+                          type="button"
+                          onClick={() => setSelectedPrice(isActive ? null : tier)}
+                          className={`w-9 h-7 flex items-center justify-center text-xs font-bold rounded-lg border transition cursor-pointer ${
+                            isActive
+                              ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                              : "bg-gray-50 text-gray-700 hover:bg-gray-100 border-gray-200"
+                          }`}
+                        >
+                          {tier}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Distance Radius */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mr-1">Radius:</span>
+                    {[
+                      { label: "Any", val: null },
+                      { label: "Walk (~1 mi)", val: 1.6 },
+                      { label: "Drive (~5 mi)", val: 8.0 },
+                      { label: "Metro (~15 mi)", val: 24.0 }
+                    ].map(({ label, val }) => {
+                      const isActive = selectedRadiusKm === val;
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setSelectedRadiusKm(val)}
+                          className={`px-2 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                            isActive
+                              ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                              : "bg-gray-50 text-gray-700 hover:bg-gray-100 border-gray-200"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Trending Craves from Dishes Catalog */}
+          {trendingDishes.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 w-full max-w-3xl">
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">🔥 Trending Craves:</span>
+              {trendingDishes.map((dish) => (
+                <button
+                  key={dish.id}
+                  type="button"
+                  onClick={() => {
+                    setDishName(dish.name);
+                    executeSearch(dish.name, location || "New York");
+                  }}
+                  disabled={loading}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 hover:bg-orange-100 text-orange-900 text-xs font-medium rounded-full border border-orange-200 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                  title={`Search trending dish: ${dish.name} (${dish.search_count} searches)`}
+                >
+                  <span>🍽️</span>
+                  <span className="font-semibold">{dish.name}</span>
+                  <span className="text-[10px] text-orange-600 font-bold">({dish.search_count})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Recent Search Queries (Last 5) */}
           {searchHistory.length > 0 && (
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 w-full max-w-3xl">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 w-full max-w-3xl">
               <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Recent Searches:</span>
+
               {searchHistory.map((item) => (
                 <button
                   key={item.id}
@@ -958,6 +1237,21 @@ export default function Home() {
                       : "bg-white border-gray-100 hover:border-gray-200 hover:shadow"
                   }`}
                 >
+                  {/* Phase 5 Food Photo Banner */}
+                  {r.photo_url && (
+                    <div className="relative w-full h-36 sm:h-40 rounded-lg overflow-hidden bg-gray-100 mb-1">
+                      <img
+                        src={r.photo_url.startsWith('/') ? `${API_BASE_URL}${r.photo_url}` : r.photo_url}
+                        alt={`${r.name} dish`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+
                   <div className="flex justify-between items-start gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-bold text-lg text-gray-900 leading-tight">{i + 1}. {r.name}</h3>
@@ -1027,7 +1321,7 @@ export default function Home() {
                     </p>
                   )}
                   
-                  {/* Feedback Buttons, Menu & Directions */}
+                  {/* Feedback Buttons, Booking, Menu & Directions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-gray-100">
                     <div className="flex gap-2">
                       <button 
@@ -1049,7 +1343,7 @@ export default function Home() {
                         👎 Not Helpful
                       </button>
                     </div>
-                    <div className="flex items-center gap-1.5 ml-auto">
+                    <div className="flex flex-wrap items-center gap-1.5 ml-auto">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1063,6 +1357,32 @@ export default function Home() {
                         <span>🗺️</span>
                         <span>Map</span>
                       </button>
+                      {r.delivery_url && (
+                        <a
+                          href={r.delivery_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 transition cursor-pointer"
+                          title="Order Delivery (Uber Eats / DoorDash)"
+                        >
+                          <span>🛵</span>
+                          <span>Order</span>
+                        </a>
+                      )}
+                      {r.reservation_url && (
+                        <a
+                          href={r.reservation_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200 transition cursor-pointer"
+                          title="Reserve Table (OpenTable)"
+                        >
+                          <span>📅</span>
+                          <span>Reserve</span>
+                        </a>
+                      )}
                       {r.website && (
                         <a
                           href={r.website}
@@ -1073,7 +1393,7 @@ export default function Home() {
                           title="View Restaurant Website & Menu"
                         >
                           <span>📖</span>
-                          <span>Menu / Web</span>
+                          <span>Menu</span>
                         </a>
                       )}
                       <button
@@ -1108,6 +1428,105 @@ export default function Home() {
                 </div>
               );
             })}
+
+            {/* Interactive AI Foodie Concierge */}
+            {results.length > 0 && results[0]?.query_id && (
+              <div className="mt-3 bg-gradient-to-br from-orange-50/90 via-white to-amber-50/60 p-4 rounded-2xl border border-orange-200 shadow-sm flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">✨</span>
+                    <h3 className="font-bold text-sm text-gray-900">Foodie Concierge AI</h3>
+                    <span className="text-[10px] bg-orange-100 text-orange-800 font-semibold px-2 py-0.5 rounded-full">Assistant</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500">Grounded in these {results.length} spots</span>
+                </div>
+
+                {/* Quick Inquiry Prompts */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Which spot is best on a budget?",
+                    "Do any have outdoor patio seating?",
+                    "Which has the most authentic reviews?",
+                    "Any standout vegan options?"
+                  ].map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      disabled={chatLoading}
+                      onClick={() => handleSendChat(prompt)}
+                      className="text-[11px] bg-white hover:bg-orange-50 text-gray-700 hover:text-orange-700 px-2.5 py-1 rounded-full border border-gray-200 hover:border-orange-300 transition shadow-2xs cursor-pointer disabled:opacity-50"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Chat Message Stream */}
+                <div className="max-h-60 overflow-y-auto flex flex-col gap-2.5 pr-1 text-xs">
+                  {chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-xl leading-relaxed ${
+                        msg.sender === 'user'
+                          ? 'bg-orange-600 text-white ml-auto max-w-[85%]'
+                          : 'bg-white text-gray-800 border border-orange-100 mr-auto max-w-[95%] shadow-2xs'
+                      }`}
+                    >
+                      <div className="whitespace-pre-wrap">{msg.text}</div>
+                      {msg.cited_restaurants && msg.cited_restaurants.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2 pt-1.5 border-t border-gray-100">
+                          <span className="text-[10px] text-gray-400 font-medium">Spots:</span>
+                          {msg.cited_restaurants.map((name) => {
+                            const matchedPlace = results.find((r) => r.name.toLowerCase() === name.toLowerCase());
+                            return (
+                              <button
+                                key={name}
+                                type="button"
+                                onClick={() => {
+                                  if (matchedPlace) handleSelectPlace(String(matchedPlace.id));
+                                }}
+                                className="text-[10px] bg-orange-50 hover:bg-orange-100 text-orange-800 font-bold px-1.5 py-0.5 rounded border border-orange-200 cursor-pointer"
+                              >
+                                📍 {name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="bg-white p-3 rounded-xl border border-orange-100 text-gray-500 italic text-xs mr-auto flex items-center gap-2">
+                      <svg className="animate-spin h-3.5 w-3.5 text-orange-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Foodie AI is thinking...
+                    </div>
+                  )}
+                </div>
+
+                {/* Chat Input */}
+                <form onSubmit={(e) => { e.preventDefault(); handleSendChat(chatInput); }} className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Ask a question about these spots..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    disabled={chatLoading}
+                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white text-black"
+                  />
+                  <button
+                    type="submit"
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 rounded-lg transition shrink-0 cursor-pointer"
+                  >
+                    Ask
+                  </button>
+                </form>
+              </div>
+            )}
+
           </div>
         </main>
 

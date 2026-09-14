@@ -30,6 +30,15 @@ This document tracks completed milestones and outlines upcoming features, infras
   - Two-way deep linking URL synchronization (`/?dish=...&loc=...`) with automatic search execution.
   - Native Web Share API (`navigator.share`) and animated clipboard toast copy actions.
   - Multi-Provider Auth: Email/Password (Sign In, Sign Up, Forgot Password), Google, and Apple ID & Outlook/Microsoft UI suite.
+- [x] **Phase 5: Core Feature Enhancements & Dishes Catalog (Completed & Tested)**:
+  - Dedicated `dishes` database catalog tracking popularity, timestamps, and primary photos.
+  - 1-Click interactive "🔥 Trending Craves" chips in search header (`GET /api/dishes/trending`).
+  - Dietary quick filter chips (Vegan, Halal, Vegetarian, Gluten-Free, Kosher, Dairy-Free).
+  - Price tier (`$`, `$$`, `$$$`, `$$$$`) and distance radius selectors.
+  - Google Places photo proxy `GET /api/places/photo/{ref}` with 30-day cache headers and visual card headers.
+  - 1-Click direct delivery (`🛵 Order`) and reservation (`📅 Reserve`) deep links.
+  - Interactive AI Foodie Concierge (`POST /api/chat`) with grounded restaurant citation tags.
+
 
 ---
 
@@ -106,21 +115,30 @@ This document tracks completed milestones and outlines upcoming features, infras
 
 ---
 
-## 🍽️ Phase 5: Core Feature Enhancements [IN PROGRESS]
+## 🍽️ Phase 5: Core Feature Enhancements [COMPLETED & TESTED]
 
-- [ ] **Dietary & Lifestyle Quick Filters**
+- [x] **Dedicated Dishes Catalog & Trending Craves**
+  - Database-backed `dishes` entity tracking popularity (`search_count`), timestamps, and primary photos.
+  - Linked every search query and recommendation directly to its dish catalog record.
+  - `GET /api/dishes/trending` endpoint surfacing top community craves.
+  - 1-Click interactive "🔥 Trending Craves" chips in the search header.
+- [x] **Dietary & Lifestyle Quick Filters**
   - Interactive filter chips: Vegan, Halal, Vegetarian, Gluten-Free, Kosher, Dairy-Free.
-  - Pass filter requirements to backend search and instruct Gemini 3.6 Flash to prioritize certified/dedicated kitchens and filter out non-compliant spots.
-- [ ] **Price & Distance Filters**
+  - Gemini 3.6 Flash prompt enforcement with smart fallback popularity and compliance score boosting.
+- [x] **Price Tier & Distance Radius Filters**
   - Price tiers: `$` (Budget), `$$` (Casual), `$$$` (Upscale), `$$$$` (Fine Dining).
-  - Distance radius selection: Walking (1 mi), Short Drive (5 mi), Metro Area (15 mi).
-- [ ] **Google Places Dish Photo Gallery & Visual Cards**
-  - Fetch and display authentic dish photos from Google Places Photo API on restaurant cards.
-  - Photo modal / lightbox or card image header for visually appetizing dish recommendations.
-- [ ] **Direct Delivery & Reservation Integrations**
-  - Deep links to delivery apps (UberEats, DoorDash) or reservation platforms (OpenTable, Resy, Google Reserve).
-- [ ] **Interactive AI Dish Chat / Follow-Up Query**
-  - Allow users to ask follow-up questions: *"Which of these spots has outdoor patio seating?"* or *"Which is best for a quick lunch?"*.
+  - Distance radius selection: Walking (1 mi), Short Drive (5 mi), Metro Area (15 mi) with Haversine distance cutoff.
+- [x] **Google Places Photo Gallery & Visual Cards**
+  - Secure backend photo proxy `GET /api/places/photo/{photo_reference}` with 30-day client cache headers.
+  - Hidden API key security eliminates frontend key leakage and saves quota.
+  - Appetizing visual dish photo banners on recommendation cards.
+- [x] **Direct Delivery & Reservation Integrations**
+  - 1-Click action buttons on cards: `🛵 Order` (Uber Eats / DoorDash) and `📅 Reserve` (OpenTable).
+- [x] **Interactive AI Foodie Concierge / Follow-Up Q&A Assistant**
+  - `POST /api/chat` conversational endpoint powered by Gemini 3.6 Flash.
+  - Grounded directly on the recommended restaurants, reviews, pricing, dietary suitability, and amenities.
+  - Interactive chat box with quick prompts ("Which spot is best on a budget?", "Do any have outdoor patio seating?") and clickable restaurant citation pills that select and focus the card.
+
 
 ---
 
