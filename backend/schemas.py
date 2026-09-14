@@ -76,3 +76,32 @@ class ChatResponse(BaseModel):
     response: str
     cited_restaurants: List[str] = []
 
+class TopRestaurantGem(BaseModel):
+    place_id: str
+    name: str
+    positive_votes: int
+    rating: float
+    photo_url: Optional[str] = None
+    location: Optional[str] = None
+
+class CityTrendItem(BaseModel):
+    location: str
+    dish_name: str
+    search_count: int
+
+class CityTrendsResponse(BaseModel):
+    available_cities: List[str]
+    trends: List[CityTrendItem]
+
+class AnalyticsSummaryResponse(BaseModel):
+    total_searches: int
+    unique_dishes_cataloged: int
+    total_recommendations: int
+    satisfaction_rate_percent: float
+    total_feedback_votes: int
+    positive_feedback_votes: int
+    negative_feedback_votes: int
+    top_dishes: List[DishItem]
+    top_gems: List[TopRestaurantGem]
+
+
