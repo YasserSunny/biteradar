@@ -35,7 +35,7 @@ def geocode_location(location: str) -> Optional[Dict[str, float]]:
         logger.error(f"Error geocoding location '{location}': {e}", exc_info=True)
         return None
 
-def search_candidate_restaurants(dish_name: str, location: str, lat: float, lng: float, limit: int = 5) -> List[Dict[str, Any]]:
+def search_candidate_restaurants(dish_name: str, location: str, lat: float, lng: float, limit: int = 5, max_distance_km: Optional[float] = None) -> List[Dict[str, Any]]:
     """Search for candidate restaurants serving a dish near the specified coordinates safely."""
     if not gmaps:
         logger.warning("Google Maps client is not initialized.")
@@ -49,6 +49,7 @@ def search_candidate_restaurants(dish_name: str, location: str, lat: float, lng:
             radius=5000
         )
         raw_candidates = places_result.get('results', [])
+        effective_max_dist = max_distance_km if (max_distance_km and max_distance_km > 0) else MAX_DISTANCE_KM
         candidates = []
         for place in raw_candidates:
             geom = place.get('geometry', {}).get('location', {})
@@ -56,23 +57,23 @@ def search_candidate_restaurants(dish_name: str, location: str, lat: float, lng:
             cand_lng = geom.get('lng')
             if cand_lat is not None and cand_lng is not None:
                 dist_km = haversine_distance_km(lat, lng, cand_lat, cand_lng)
-                if dist_km > MAX_DISTANCE_KM:
+                if dist_km > effective_max_dist:
                     logger.warning(
-                        f"Filtered out distant candidate '{place.get('name')}' ({dist_km:.1f} km away from target {lat}, {lng}, max {MAX_DISTANCE_KM} km)"
+                        f"Filtered out distant candidate '{place.get('name')}' ({dist_km:.1f} km away from target {lat}, {lng}, max {effective_max_dist} km)"
                     )
                     continue
             candidates.append(place)
             if len(candidates) >= limit:
                 break
 
-        logger.info(f"Google Places returned {len(candidates)} valid candidate(s) within {MAX_DISTANCE_KM} km radius")
+        logger.info(f"Google Places returned {len(candidates)} valid candidate(s) within {effective_max_dist} km radius")
         return candidates
     except Exception as e:
         logger.error(f"Error searching Google Places for '{dish_name}' in '{location}': {e}", exc_info=True)
         return []
 
 def fetch_place_details(place_id: str) -> Dict[str, Any]:
-    """Fetch detailed place information including ratings, editorial summary, hours, website, and reviews safely."""
+    """Fetch detailed place information including ratings, editorial summary, hours, website, reviews, and photos safely."""
     if not gmaps:
         return {}
     try:
@@ -87,10 +88,21 @@ def fetch_place_details(place_id: str) -> Dict[str, Any]:
                 'price_level',
                 'editorial_summary',
                 'opening_hours',
-                'website'
+                'website',
+                'photos'
             ]
         )
         return details.get('result', {})
     except Exception as e:
         logger.error(f"Error fetching place details for place_id '{place_id}': {e}", exc_info=True)
         return {}
+
+def get_photo_reference(place_data: Dict[str, Any]) -> Optional[str]:
+    """Safely extract the first photo reference from place details or search result."""
+    photos = place_data.get('photos')
+    if photos and isinstance(photos, list) and len(photos) > 0:
+        first = photos[0]
+        if isinstance(first, dict):
+            return first.get('photo_reference')
+    return None
+

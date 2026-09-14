@@ -1,14 +1,16 @@
 from typing import List, Optional
 import json
-from fastapi import APIRouter, HTTPException, Depends
+import urllib.parse
+import requests
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
 import models
-from schemas import SearchRequest, RestaurantResult, FeedbackRequest
-from config import gmaps, ai_client
-from services.places_service import geocode_location, search_candidate_restaurants, fetch_place_details
+from schemas import SearchRequest, RestaurantResult, FeedbackRequest, DishItem
+from config import gmaps, ai_client, GOOGLE_MAPS_API_KEY
+from services.places_service import geocode_location, search_candidate_restaurants, fetch_place_details, get_photo_reference
 from services.yelp_service import fetch_yelp_details_and_reviews
 from services.foursquare_service import fetch_foursquare_tips
 from services.osm_service import fetch_osm_amenities_and_dietary
@@ -28,6 +30,14 @@ def _parse_json_list(val: Optional[str]) -> List[str]:
     except Exception:
         return []
 
+def _generate_delivery_url(restaurant_name: str, location: str) -> str:
+    query = urllib.parse.quote_plus(f"{restaurant_name} {location}")
+    return f"https://www.ubereats.com/search?q={query}"
+
+def _generate_reservation_url(restaurant_name: str, location: str) -> str:
+    query = urllib.parse.quote_plus(f"{restaurant_name} {location}")
+    return f"https://www.opentable.com/s?term={query}"
+
 router = APIRouter(prefix="/api", tags=["search"])
 
 @router.post("/search", response_model=List[RestaurantResult])
@@ -40,7 +50,35 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
     if not loc_str:
         raise HTTPException(status_code=400, detail="location cannot be empty.")
 
-    logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', user_id='{request.user_id}'")
+    logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', user_id='{request.user_id}', dietary={request.dietary_filters}, price={request.price_tier}, radius={request.max_distance_km}")
+
+    # Track / link dish in dishes catalog
+    normalized_dish = dish.lower().strip()
+    dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
+    if not dish_record:
+        try:
+            dish_record = models.Dish(
+                name=dish,
+                normalized_name=normalized_dish,
+                search_count=1,
+                dietary_attributes=json.dumps(request.dietary_filters or [])
+            )
+            db.add(dish_record)
+            db.commit()
+            db.refresh(dish_record)
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Could not create Dish catalog item: {e}")
+            dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
+    else:
+        try:
+            dish_record.search_count = (dish_record.search_count or 0) + 1
+            dish_record.last_searched_at = func.now()
+            db.commit()
+            db.refresh(dish_record)
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Could not update Dish search count: {e}")
 
     if not gmaps:
         logger.warning("Google Maps client is unavailable; cannot perform live search.")
@@ -55,6 +93,13 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
 
         if existing_query and existing_query.recommendations:
             logger.info(f"Cache HIT for query_id={existing_query.id} ('{dish}' in '{loc_str}')")
+            if not existing_query.dish_id and dish_record:
+                try:
+                    existing_query.dish_id = dish_record.id
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
             if request.user_id:
                 try:
                     history_entry = models.SearchHistory(user_id=request.user_id, query_id=existing_query.id)
@@ -82,8 +127,13 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     helpful_quote=r.helpful_quote,
                     lat=r.lat,
                     lng=r.lng,
-                    helpful=r.helpful
+                    helpful=r.helpful,
+                    photo_url=r.photo_url,
+                    delivery_url=r.delivery_url or _generate_delivery_url(r.name, loc_str),
+                    reservation_url=r.reservation_url or _generate_reservation_url(r.name, loc_str),
+                    query_id=existing_query.id
                 )
+
                 for r in existing_query.recommendations
             ]
 
@@ -101,7 +151,11 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
 
         # Save new search query to DB safely
         try:
-            db_query = models.SearchQuery(dish_name=dish, location=loc_str)
+            db_query = models.SearchQuery(
+                dish_name=dish,
+                location=loc_str,
+                dish_id=dish_record.id if dish_record else None
+            )
             db.add(db_query)
             db.commit()
             db.refresh(db_query)
@@ -117,7 +171,10 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             db_query = models.SearchQuery(id=0, dish_name=dish, location=loc_str)
 
         # 2. Search candidate restaurants
-        candidates = search_candidate_restaurants(dish, loc_str, loc['lat'], loc['lng'])
+        if request.max_distance_km is not None:
+            candidates = search_candidate_restaurants(dish, loc_str, loc['lat'], loc['lng'], max_distance_km=request.max_distance_km)
+        else:
+            candidates = search_candidate_restaurants(dish, loc_str, loc['lat'], loc['lng'])
         if not candidates:
             logger.info(f"No candidate restaurants found for '{dish}' in '{loc_str}'")
             return []
@@ -246,6 +303,19 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 menu_data = fetch_dish_pricing_and_menu(dish, name, lat, lng, price_level=price_str)
                 dish_price = menu_data.get("dish_price")
 
+                # Photo & external booking / delivery links
+                photo_ref = get_photo_reference(res) or get_photo_reference(place)
+                photo_url = f"/api/places/photo/{photo_ref}" if photo_ref else None
+                delivery_url = _generate_delivery_url(name, loc_str)
+                reservation_url = _generate_reservation_url(name, loc_str)
+
+                if dish_record and not dish_record.primary_photo_url and photo_url:
+                    try:
+                        dish_record.primary_photo_url = photo_url
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+
                 restaurant_data.append({
                     "place_id": place_id,
                     "name": name,
@@ -261,7 +331,10 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     "lat": lat,
                     "lng": lng,
                     "reviews": all_review_texts,
-                    "foursquare_tips": foursquare_tips
+                    "foursquare_tips": foursquare_tips,
+                    "photo_url": photo_url,
+                    "delivery_url": delivery_url,
+                    "reservation_url": reservation_url
                 })
             except Exception as e:
                 logger.error(f"Error processing candidate place: {e}", exc_info=True)
@@ -272,7 +345,12 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             return []
 
         # 4. Rank candidates with Gemini (or automatic popularity fallback)
-        llm_results = rank_restaurants_with_gemini(dish, restaurant_data)
+        llm_results = rank_restaurants_with_gemini(
+            dish,
+            restaurant_data,
+            dietary_filters=request.dietary_filters,
+            price_tier=request.price_tier
+        )
 
         # 5. Format and persist recommendations
         final_results = []
@@ -299,7 +377,10 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         reason=item.get("reason", "Highly recommended spot."),
                         helpful_quote=item.get("helpful_quote"),
                         lat=r_data["lat"],
-                        lng=r_data["lng"]
+                        lng=r_data["lng"],
+                        photo_url=r_data.get("photo_url"),
+                        delivery_url=r_data.get("delivery_url"),
+                        reservation_url=r_data.get("reservation_url")
                     )
                     db.add(db_rec)
                     db.commit()
@@ -327,7 +408,11 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         helpful_quote=item.get("helpful_quote"),
                         lat=r_data["lat"],
                         lng=r_data["lng"],
-                        helpful=None
+                        helpful=None,
+                        photo_url=r_data.get("photo_url"),
+                        delivery_url=r_data.get("delivery_url"),
+                        reservation_url=r_data.get("reservation_url"),
+                        query_id=db_query.id if db_query and db_query.id else None
                     )
                 )
 
@@ -385,12 +470,75 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
                 helpful_quote=r.helpful_quote,
                 lat=r.lat,
                 lng=r.lng,
-                helpful=r.helpful
+                helpful=r.helpful,
+                photo_url=r.photo_url,
+                delivery_url=r.delivery_url or _generate_delivery_url(r.name, query.location),
+                reservation_url=r.reservation_url or _generate_reservation_url(r.name, query.location),
+                query_id=query.id
             )
             for r in query.recommendations
         ]
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error fetching query recommendations for {query_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Could not retrieve recommendations.")
+
+@router.get("/dishes/trending", response_model=List[DishItem])
+def get_trending_dishes(limit: int = 8, db: Session = Depends(get_db)):
+    """Fetch popular and trending dishes from the BiteRadar catalog."""
+    try:
+        dishes = db.query(models.Dish).order_by(
+            models.Dish.search_count.desc(),
+            models.Dish.last_searched_at.desc()
+        ).limit(limit).all()
+
+        return [
+            DishItem(
+                id=d.id,
+                name=d.name,
+                cuisine=d.cuisine,
+                description=d.description,
+                primary_photo_url=d.primary_photo_url,
+                typical_price_range=d.typical_price_range,
+                dietary_attributes=_parse_json_list(d.dietary_attributes),
+                search_count=d.search_count or 1
+            )
+            for d in dishes
+        ]
+    except Exception as e:
+        logger.error(f"Error fetching trending dishes: {e}", exc_info=True)
+        return []
+
+@router.get("/places/photo/{photo_reference}")
+def get_place_photo(photo_reference: str):
+    """
+    Secure backend proxy for Google Places photos.
+    Caches photos for 30 days, eliminates direct frontend API key exposure.
+    """
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Google Maps API Key not configured.")
+    try:
+        url = "https://maps.googleapis.com/maps/api/place/photo"
+        params = {
+            "maxwidth": 800,
+            "photoreference": photo_reference,
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        resp = requests.get(url, params=params, stream=True, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(f"Google photo proxy returned status {resp.status_code}")
+            raise HTTPException(status_code=resp.status_code, detail="Could not load place photo.")
+
+        return Response(
+            content=resp.content,
+            media_type=resp.headers.get("Content-Type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=2592000, immutable"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error proxying place photo '{photo_reference}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch photo.")
+

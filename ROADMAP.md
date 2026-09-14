@@ -18,7 +18,27 @@ This document tracks completed milestones and outlines upcoming features, infras
   - Custom artistic logo (Solid Red Geo Pin, Golden-Amber Radar Waves, Warm Orange Bowl).
   - Inline vector SVG components for instant, zero-cache rendering.
   - Multi-resolution Chrome tab favicons (`icon.svg`, `icon.png`, `favicon.ico`).
-  - Standardized **BiteRadar** typography across the platform.
+- [x] **Phase 4: Strategic Data Source Expansions (Completed & Deployed)**:
+  - Foursquare Places API integration with live diner tips synthesized into Gemini recommendations.
+  - Keyless OpenStreetMap Overpass community dietary badges (Halal, Vegan, Gluten-Free) and amenities.
+  - Itemized dish pricing heuristics (`~$12 - $18`) and Documenu support.
+  - Geographic Haversine distance bounding (60 km) & coordinate synchronization.
+  - Custom touch-friendly map zoom controls (+/-) and tab resize stabilization.
+- [x] **Phase 2: Mobile Experience, Discoverability & Multi-Provider Auth (Completed & Merged)**:
+  - Progressive Web App (PWA) manifest and responsive icon suite (192px, 512px, maskable, Apple touch icon).
+  - Open Graph 1200x630 and Twitter preview cards with branded graphics and dynamic title templates.
+  - Two-way deep linking URL synchronization (`/?dish=...&loc=...`) with automatic search execution.
+  - Native Web Share API (`navigator.share`) and animated clipboard toast copy actions.
+  - Multi-Provider Auth: Email/Password (Sign In, Sign Up, Forgot Password), Google, and Apple ID & Outlook/Microsoft UI suite.
+- [x] **Phase 5: Core Feature Enhancements & Dishes Catalog (Completed & Tested)**:
+  - Dedicated `dishes` database catalog tracking popularity, timestamps, and primary photos.
+  - 1-Click interactive "🔥 Trending Craves" chips in search header (`GET /api/dishes/trending`).
+  - Dietary quick filter chips (Vegan, Halal, Vegetarian, Gluten-Free, Kosher, Dairy-Free).
+  - Price tier (`$`, `$$`, `$$$`, `$$$$`) and distance radius selectors.
+  - Google Places photo proxy `GET /api/places/photo/{ref}` with 30-day cache headers and visual card headers.
+  - 1-Click direct delivery (`🛵 Order`) and reservation (`📅 Reserve`) deep links.
+  - Interactive AI Foodie Concierge (`POST /api/chat`) with grounded restaurant citation tags.
+
 
 ---
 
@@ -39,19 +59,24 @@ This document tracks completed milestones and outlines upcoming features, infras
 
 ---
 
-## 📱 Phase 2: Mobile Experience & Discoverability
+## 📱 Phase 2: Mobile Experience, Discoverability & Multi-Provider Auth [COMPLETED & MERGED]
 
-- [ ] **Progressive Web App (PWA) Support**
-  - Add Web App Manifest (`manifest.json`) with app name, theme colors (`#ea580c`), and splash background.
-  - Generate 192x192 and 512x512 maskable app icons.
-  - Enable "Add to Home Screen" on iOS Safari and Android Chrome for a native app feel with zero App Store friction.
-- [ ] **SEO & Social Share Preview Cards (Open Graph / Twitter)**
-  - Create high-resolution social share preview image (`og:image`) featuring the new BiteRadar logo and tagline.
-  - Add meta tags (`og:title`, `og:description`, `twitter:card`) in `layout.tsx`.
-  - Ensure rich previews when links are shared on iMessage, X/Twitter, WhatsApp, and Slack.
-- [ ] **Dynamic Page Titles & Shareable Dish URLs**
-  - Implement deep-link routes (e.g. `/search?dish=spicy-ramen&loc=nyc`).
-  - Allow users to share specific search results directly with friends.
+- [x] **Progressive Web App (PWA) Support**
+  - Added Web App Manifest (`manifest.webmanifest`) with app name, theme color (`#ea580c`), and standalone display.
+  - Generated full responsive icon suite: 192x192, 512x512, 512x512 maskable, and 180x180 Apple touch icon.
+  - Enabled "Add to Home Screen" on iOS Safari and Android Chrome for a native app feel.
+- [x] **SEO & Social Share Preview Cards (Open Graph / Twitter)**
+  - Created high-resolution 1200x630 social share preview images (`og:image`, `opengraph-image.png`).
+  - Added rich meta tags (`og:title`, `og:description`, `twitter:card`) and viewport theme colors in `layout.tsx`.
+- [x] **Dynamic Page Titles & Shareable Dish URLs (Deep Linking)**
+  - Implemented two-way URL parameter synchronization (`/?dish=...&loc=...`).
+  - Automated search execution on shared URL visits.
+  - Dynamic document titles (`${dish} in ${location} | BiteRadar`).
+  - Native Web Share API (`navigator.share`) on mobile with clipboard toast fallback on desktop.
+- [x] **Multi-Provider Authentication Suite**
+  - Full Email & Password login, signup, password visibility toggle, and password recovery email flow.
+  - Google Sign-In integration.
+  - Apple ID and Outlook / Microsoft sign-in buttons with friendly status notifications.
 
 ---
 
@@ -68,35 +93,52 @@ This document tracks completed milestones and outlines upcoming features, infras
 
 ---
 
-## 🌐 Phase 4: Strategic Data Source Expansions
+## 🌐 Phase 4: Strategic Data Source Expansions [COMPLETED & DEPLOYED]
 
 - [x] **Foursquare Places API Integration (Dish Tips & Free Credits)**
-  - Tap into Foursquare's dedicated **"Tips"** endpoint (punchy, dish-specific recommendations written by diners).
-  - Supplies Gemini with cleaner, denser dish signals compared to multi-paragraph reviews.
-  - Takes advantage of Foursquare's recurring **$200/month free credit** to double our data intelligence at $0 cost.
+  - Connected Foursquare Places API v3 for venue discovery and top diner tips.
+  - Tips synthesized in Gemini 3.6 Flash prompt to surface authentic quotes.
+  - Database persistence in `reviews` table (`source="foursquare"`).
+  - Built-in circuit breaker to gracefully bypass 429 quota exhaustion.
 - [x] **Itemized Menus & Dish Pricing (Documenu / Delivery Feeds)**
-  - Integrate Documenu or delivery platform feeds (DoorDash/UberEats) to surface exact dish prices (e.g. `Spicy Tonkotsu Ramen - $17.50`) and full ingredient descriptions directly on cards.
-  - Bridges the gap between generic restaurant ratings and exact dish costs.
+  - Added Documenu provider support and dish price parsing.
+  - Intelligent fallback pricing heuristics (`~$12 - $18`) rendered directly on restaurant cards.
 - [x] **OpenStreetMap (OSM) Integration for Zero-Cost Dietary & Amenity Tags**
-  - Use Overpass API / Overture Maps to query community-verified tags (`diet:vegan=yes`, `diet:halal=yes`, `diet:gluten_free=yes`, `outdoor_seating=yes`, `wheelchair=yes`).
-  - Provides unmetered, completely free dietary and amenity verification with zero third-party API costs or rate limits.
+  - Keyless Overpass API queries around candidate restaurant coordinates.
+  - Community tags extracted: `diet:vegan`, `diet:halal`, `diet:gluten_free`, `takeaway`, `delivery`, `outdoor_seating`.
+- [x] **Geographic Distance Bounding & Coordinate Synchronization**
+  - Strict 60 km Haversine cutoff to eliminate out-of-market results.
+  - Direct coordinate propagation bypassing ambiguous string geocoding.
+- [x] **Interactive Map Controls & Camera Stability**
+  - Custom touch-friendly `+` / `−` zoom controls with proper street-level vs. city-level zoom.
+  - Decoupled map bounds triggers to eliminate tab toggle jitter.
 
 ---
 
-## 🍽️ Phase 5: Core Feature Enhancements
+## 🍽️ Phase 5: Core Feature Enhancements [COMPLETED & TESTED]
 
-- [ ] **Dietary & Lifestyle Filters**
-  - Quick toggle filters: Vegan, Vegetarian, Halal, Kosher, Gluten-Free, Dairy-Free.
-  - Prompt engineering updates to instruct Gemini to prioritize certified/dedicated kitchens.
-- [ ] **Price & Distance Filters**
+- [x] **Dedicated Dishes Catalog & Trending Craves**
+  - Database-backed `dishes` entity tracking popularity (`search_count`), timestamps, and primary photos.
+  - Linked every search query and recommendation directly to its dish catalog record.
+  - `GET /api/dishes/trending` endpoint surfacing top community craves.
+  - 1-Click interactive "🔥 Trending Craves" chips in the search header.
+- [x] **Dietary & Lifestyle Quick Filters**
+  - Interactive filter chips: Vegan, Halal, Vegetarian, Gluten-Free, Kosher, Dairy-Free.
+  - Gemini 3.6 Flash prompt enforcement with smart fallback popularity and compliance score boosting.
+- [x] **Price Tier & Distance Radius Filters**
   - Price tiers: `$` (Budget), `$$` (Casual), `$$$` (Upscale), `$$$$` (Fine Dining).
-  - Distance radius slider: 1 mile (walking), 5 miles (biking/short drive), 15 miles (metro area).
-- [ ] **Direct Ordering & Booking Integrations**
-  - Deep links to delivery apps (UberEats, DoorDash) or reservation platforms (OpenTable, Resy) when available.
-- [ ] **Photo Carousel on Restaurant Cards**
-  - Fetch and display top dish photos from Google Places Photo API to make recommendations visually appetizing.
-- [ ] **Interactive AI Dish Chat / Follow-Up**
-  - Allow users to ask follow-up questions: *"Which of these spots has outdoor patio seating?"* or *"Compare #1 and #2"*.
+  - Distance radius selection: Walking (1 mi), Short Drive (5 mi), Metro Area (15 mi) with Haversine distance cutoff.
+- [x] **Google Places Photo Gallery & Visual Cards**
+  - Secure backend photo proxy `GET /api/places/photo/{photo_reference}` with 30-day client cache headers.
+  - Hidden API key security eliminates frontend key leakage and saves quota.
+  - Appetizing visual dish photo banners on recommendation cards.
+- [x] **Direct Delivery & Reservation Integrations**
+  - 1-Click action buttons on cards: `🛵 Order` (Uber Eats / DoorDash) and `📅 Reserve` (OpenTable).
+- [x] **Interactive AI Foodie Concierge / Follow-Up Q&A Assistant**
+  - `POST /api/chat` conversational endpoint powered by Gemini 3.6 Flash.
+  - Grounded directly on the recommended restaurants, reviews, pricing, dietary suitability, and amenities.
+  - Interactive chat box with quick prompts ("Which spot is best on a budget?", "Do any have outdoor patio seating?") and clickable restaurant citation pills that select and focus the card.
+
 
 ---
 

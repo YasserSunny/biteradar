@@ -7,6 +7,9 @@ class SearchRequest(BaseModel):
     user_id: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    dietary_filters: Optional[List[str]] = []
+    price_tier: Optional[str] = None
+    max_distance_km: Optional[float] = None
 
 class ProfileRequest(BaseModel):
     user_id: str
@@ -45,7 +48,31 @@ class RestaurantResult(BaseModel):
     dietary_tags: Optional[List[str]] = []
     amenities: Optional[List[str]] = []
     dish_price: Optional[str] = None
+    photo_url: Optional[str] = None
+    delivery_url: Optional[str] = None
+    reservation_url: Optional[str] = None
+    query_id: Optional[int] = None
 
 class FeedbackRequest(BaseModel):
     recommendation_id: int
     helpful: bool
+
+class DishItem(BaseModel):
+    id: int
+    name: str
+    cuisine: Optional[str] = None
+    description: Optional[str] = None
+    primary_photo_url: Optional[str] = None
+    typical_price_range: Optional[str] = None
+    dietary_attributes: Optional[List[str]] = []
+    search_count: int
+
+class ChatRequest(BaseModel):
+    query_id: int
+    message: str
+    history: Optional[List[dict]] = []
+
+class ChatResponse(BaseModel):
+    response: str
+    cited_restaurants: List[str] = []
+
