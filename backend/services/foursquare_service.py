@@ -7,6 +7,7 @@ logger = get_logger("foursquare_service")
 
 # Process-level circuit breaker: if API key is rejected with 401/403, stop calling Foursquare
 _foursquare_auth_invalid = False
+_foursquare_tips_exhausted = False
 
 def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
     """
@@ -74,7 +75,11 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
         result["fsq_id"] = fsq_id
         result["categories"] = [c.get("name") for c in place.get("categories", []) if c.get("name")]
 
-        # 2. Fetch tips for matched place
+        # 2. Fetch tips for matched place (if account has credits)
+        global _foursquare_tips_exhausted
+        if _foursquare_tips_exhausted:
+            return result
+
         tips_url = f"https://places-api.foursquare.com/places/{fsq_id}/tips"
         tips_params = {"limit": 5, "sort": "POPULAR"}
 
@@ -91,6 +96,12 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
                         "created_at": tip.get("created_at")
                     })
             logger.info(f"Foursquare enrichment succeeded for '{name}' ({len(result['tips'])} tip(s) fetched)")
+        elif tips_resp.status_code == 429:
+            _foursquare_tips_exhausted = True
+            logger.info(
+                "Foursquare account has no remaining API credits for Tips endpoint (HTTP 429). "
+                "Retaining venue match & categories and skipping further tips queries for this session."
+            )
         else:
             logger.warning(f"Foursquare tips fetch failed for fsq_id '{fsq_id}' (HTTP {tips_resp.status_code})")
 
