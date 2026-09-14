@@ -272,5 +272,58 @@ class TestPhase5CoreEnhancements(unittest.TestCase):
         self.assertIn("Austin Mexican Kitchen", data_patio["response"])
         self.assertIn("Austin Mexican Kitchen", data_patio["cited_restaurants"])
 
+    # -------------------------------------------------------------
+    # 6. Database Schema Migrations Resilience
+    # -------------------------------------------------------------
+    def test_database_migrations_idempotency_and_column_addition(self):
+        """Verify run_database_migrations adds missing columns to existing tables and is idempotent."""
+        from database import run_database_migrations
+        from sqlalchemy import create_engine, text, inspect
+        from sqlalchemy.pool import StaticPool
+
+        test_engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+
+        # Simulate legacy schema before Phase 5 migrations
+        with test_engine.begin() as conn:
+            conn.execute(text("CREATE TABLE search_queries (id INTEGER PRIMARY KEY, dish_name VARCHAR, location VARCHAR);"))
+            conn.execute(text("CREATE TABLE recommendations (id INTEGER PRIMARY KEY, name VARCHAR, dietary_tags VARCHAR);"))
+
+        # Verify dish_id is missing initially
+        insp = inspect(test_engine)
+        sq_cols = {c["name"] for c in insp.get_columns("search_queries")}
+        self.assertNotIn("dish_id", sq_cols)
+
+        rec_cols = {c["name"] for c in insp.get_columns("recommendations")}
+        self.assertNotIn("photo_url", rec_cols)
+        self.assertIn("dietary_tags", rec_cols)  # Already exists from Phase 4
+
+        # Run migrations
+        run_database_migrations(test_engine)
+
+        # Inspect updated columns
+        insp_after = inspect(test_engine)
+        sq_cols_after = {c["name"] for c in insp_after.get_columns("search_queries")}
+        self.assertIn("dish_id", sq_cols_after)
+
+        rec_cols_after = {c["name"] for c in insp_after.get_columns("recommendations")}
+        self.assertIn("photo_url", rec_cols_after)
+        self.assertIn("delivery_url", rec_cols_after)
+        self.assertIn("reservation_url", rec_cols_after)
+        self.assertIn("dish_price", rec_cols_after)
+
+        # Verify dishes table was created
+        self.assertIn("dishes", insp_after.get_table_names())
+
+        # Verify idempotency (running again causes no errors)
+        try:
+            run_database_migrations(test_engine)
+        except Exception as e:
+            self.fail(f"Second migration run failed with exception: {e}")
+
 if __name__ == "__main__":
     unittest.main()
+
