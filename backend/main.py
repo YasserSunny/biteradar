@@ -5,35 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import models
-from database import engine
+from database import engine, run_database_migrations
 from routers import search, profile, chat
 from logger import get_logger
 
 logger = get_logger("app")
 
-# Ensure all database tables exist safely
-try:
-    from sqlalchemy import text
-    models.Base.metadata.create_all(bind=engine)
-    logger.info("Database tables verified and initialized successfully.")
-    # Safe column migration check for newly added columns
-    with engine.connect() as conn:
-        for col_name in ["dietary_tags", "amenities", "dish_price", "photo_url", "delivery_url", "reservation_url"]:
-            try:
-                conn.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col_name} VARCHAR"))
-                conn.commit()
-                logger.info(f"Added column '{col_name}' to recommendations table.")
-            except Exception:
-                pass  # Column already exists
-
-        try:
-            conn.execute(text("ALTER TABLE search_queries ADD COLUMN dish_id INTEGER"))
-            conn.commit()
-            logger.info("Added column 'dish_id' to search_queries table.")
-        except Exception:
-            pass
-except Exception as e:
-    logger.error(f"Error during database table initialization: {e}", exc_info=True)
+# Ensure all database tables exist safely and perform schema migrations
+run_database_migrations(engine)
 
 
 app = FastAPI(

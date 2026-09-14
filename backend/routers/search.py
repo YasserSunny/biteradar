@@ -52,33 +52,38 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
 
     logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', user_id='{request.user_id}', dietary={request.dietary_filters}, price={request.price_tier}, radius={request.max_distance_km}")
 
-    # Track / link dish in dishes catalog
-    normalized_dish = dish.lower().strip()
-    dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
-    if not dish_record:
-        try:
-            dish_record = models.Dish(
-                name=dish,
-                normalized_name=normalized_dish,
-                search_count=1,
-                dietary_attributes=json.dumps(request.dietary_filters or [])
-            )
-            db.add(dish_record)
-            db.commit()
-            db.refresh(dish_record)
-        except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not create Dish catalog item: {e}")
-            dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
-    else:
-        try:
-            dish_record.search_count = (dish_record.search_count or 0) + 1
-            dish_record.last_searched_at = func.now()
-            db.commit()
-            db.refresh(dish_record)
-        except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not update Dish search count: {e}")
+    # Track / link dish in dishes catalog safely
+    dish_record = None
+    try:
+        normalized_dish = dish.lower().strip()
+        dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
+        if not dish_record:
+            try:
+                dish_record = models.Dish(
+                    name=dish,
+                    normalized_name=normalized_dish,
+                    search_count=1,
+                    dietary_attributes=json.dumps(request.dietary_filters or [])
+                )
+                db.add(dish_record)
+                db.commit()
+                db.refresh(dish_record)
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Could not create Dish catalog item: {e}")
+                dish_record = db.query(models.Dish).filter(models.Dish.normalized_name == normalized_dish).first()
+        else:
+            try:
+                dish_record.search_count = (dish_record.search_count or 0) + 1
+                dish_record.last_searched_at = func.now()
+                db.commit()
+                db.refresh(dish_record)
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Could not update Dish search count: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Dishes catalog operation skipped due to error: {e}")
 
     if not gmaps:
         logger.warning("Google Maps client is unavailable; cannot perform live search.")
@@ -86,10 +91,15 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
 
     try:
         # Check cache (case insensitive exact match)
-        existing_query = db.query(models.SearchQuery).filter(
-            func.lower(models.SearchQuery.dish_name) == dish.lower(),
-            func.lower(models.SearchQuery.location) == loc_str.lower()
-        ).first()
+        existing_query = None
+        try:
+            existing_query = db.query(models.SearchQuery).filter(
+                func.lower(models.SearchQuery.dish_name) == dish.lower(),
+                func.lower(models.SearchQuery.location) == loc_str.lower()
+            ).first()
+        except Exception as cache_err:
+            db.rollback()
+            logger.warning(f"Could not read search cache from DB: {cache_err}")
 
         if existing_query and existing_query.recommendations:
             logger.info(f"Cache HIT for query_id={existing_query.id} ('{dish}' in '{loc_str}')")
