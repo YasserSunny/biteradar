@@ -109,6 +109,7 @@ export default function Home() {
   const [searchStep, setSearchStep] = useState<number | null>(null);
   const [mobileTab, setMobileTab] = useState<'list' | 'map'>('list');
   const [locationDetected, setLocationDetected] = useState(false);
+  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Default center (NYC initially, overwritten immediately by geolocation)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
@@ -140,6 +141,7 @@ export default function Home() {
             const userLat = pos.coords.latitude;
             const userLng = pos.coords.longitude;
             setMapCenter({ lat: userLat, lng: userLng });
+            setSelectedCoords({ lat: userLat, lng: userLng });
             setLocationDetected(true);
 
             // Reverse geocode to get city name for search input if empty
@@ -163,6 +165,7 @@ export default function Home() {
               .then((ipData) => {
                 if (ipData.latitude && ipData.longitude) {
                   setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+                  setSelectedCoords({ lat: ipData.latitude, lng: ipData.longitude });
                 }
                 const city = ipData.city || "";
                 const region = ipData.region_code || ipData.region || "";
@@ -181,6 +184,7 @@ export default function Home() {
           .then((ipData) => {
             if (ipData.latitude && ipData.longitude) {
               setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+              setSelectedCoords({ lat: ipData.latitude, lng: ipData.longitude });
             }
             const city = ipData.city || "";
             const region = ipData.region_code || ipData.region || "";
@@ -263,6 +267,18 @@ export default function Home() {
 
   const handleLocationSelect = (place: google.maps.places.PlaceResult | null, inputValue: string) => {
     setLocation(inputValue);
+    if (place && place.geometry && place.geometry.location) {
+      const lat = typeof place.geometry.location.lat === 'function'
+        ? place.geometry.location.lat()
+        : (place.geometry.location as any).lat;
+      const lng = typeof place.geometry.location.lng === 'function'
+        ? place.geometry.location.lng()
+        : (place.geometry.location as any).lng;
+      setSelectedCoords({ lat, lng });
+      setMapCenter({ lat, lng });
+    } else {
+      setSelectedCoords(null);
+    }
   };
 
   const executeSearch = async (targetDish: string, targetLocation: string) => {
@@ -290,12 +306,22 @@ export default function Home() {
     const t2 = setTimeout(() => setSearchStep(3), 3600);
 
     try {
+      const searchPayload: Record<string, any> = {
+        dish_name: finalDish,
+        location: finalLocation,
+        user_id: user?.uid,
+      };
+      if (selectedCoords) {
+        searchPayload.lat = selectedCoords.lat;
+        searchPayload.lng = selectedCoords.lng;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ dish_name: finalDish, location: finalLocation, user_id: user?.uid }),
+        body: JSON.stringify(searchPayload),
       });
 
       if (!response.ok) {
@@ -350,6 +376,7 @@ export default function Home() {
   const handleHistoryClick = async (item: SearchHistoryItem) => {
     setDishName(item.dish_name);
     setLocation(item.location);
+    setSelectedCoords(null);
     setLoading(true);
     setSearchStep(1);
     setResults([]);
@@ -492,6 +519,7 @@ export default function Home() {
               required
             />
             <Autocomplete
+              value={location}
               placeholder="Zip or City"
               className="w-48 p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-black"
               onPlaceSelect={handleLocationSelect}

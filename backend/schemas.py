@@ -5,6 +5,8 @@ class SearchRequest(BaseModel):
     dish_name: str
     location: str
     user_id: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 class ProfileRequest(BaseModel):
     user_id: str

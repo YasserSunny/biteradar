@@ -89,11 +89,15 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
 
         logger.info(f"Cache MISS for '{dish}' in '{loc_str}'. Calling external APIs...")
 
-        # 1. Geocode location to get lat/lng
-        loc = geocode_location(loc_str)
-        if not loc:
-            logger.warning(f"Geocoding failed for location: '{loc_str}'")
-            raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
+        # 1. Geocode location to get lat/lng (or use client-provided coordinates)
+        if request.lat is not None and request.lng is not None:
+            loc = {"lat": request.lat, "lng": request.lng}
+            logger.info(f"Using client-provided coordinates for '{loc_str}': lat={loc['lat']}, lng={loc['lng']}")
+        else:
+            loc = geocode_location(loc_str)
+            if not loc:
+                logger.warning(f"Geocoding failed for location: '{loc_str}'")
+                raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
 
         # Save new search query to DB safely
         try:
