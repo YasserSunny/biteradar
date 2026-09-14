@@ -50,15 +50,13 @@ interface Restaurant {
  */
 function MapResizeTrigger({
   activeTab,
-  center,
 }: {
   activeTab: string;
-  center: { lat: number; lng: number };
 }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!map) return;
+    if (!map || activeTab !== 'map') return;
 
     const triggerResize = () => {
       const div = map.getDiv();
@@ -66,31 +64,57 @@ function MapResizeTrigger({
         if (typeof window !== "undefined" && (window as any).google?.maps?.event) {
           (window as any).google.maps.event.trigger(map, "resize");
         }
-        map.setCenter(center);
       }
     };
 
-    triggerResize();
-    const t1 = setTimeout(triggerResize, 100);
-    const t2 = setTimeout(triggerResize, 350);
-
-    const div = map.getDiv();
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined" && div) {
-      ro = new ResizeObserver(() => {
-        triggerResize();
-      });
-      ro.observe(div);
-    }
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      if (ro) ro.disconnect();
-    };
-  }, [map, activeTab, center]);
+    const t = setTimeout(triggerResize, 150);
+    return () => clearTimeout(t);
+  }, [map, activeTab]);
 
   return null;
+}
+
+/**
+ * Custom Zoom Controls providing reliable, touch-friendly Zoom In (+)
+ * and Zoom Out (-) actions directly via the Google Maps instance.
+ */
+function MapControls() {
+  const map = useMap();
+
+  const handleZoomIn = () => {
+    if (!map) return;
+    const current = map.getZoom() ?? 13;
+    map.setZoom(Math.min(21, current + 1));
+  };
+
+  const handleZoomOut = () => {
+    if (!map) return;
+    const current = map.getZoom() ?? 13;
+    map.setZoom(Math.max(2, current - 1));
+  };
+
+  return (
+    <div className="absolute right-3.5 bottom-6 flex flex-col bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-10 select-none">
+      <button
+        type="button"
+        onClick={handleZoomIn}
+        className="w-10 h-10 flex items-center justify-center font-bold text-gray-700 hover:bg-orange-50 hover:text-orange-600 active:bg-orange-100 border-b border-gray-100 transition text-xl cursor-pointer"
+        title="Zoom in (Closer detail)"
+        aria-label="Zoom in"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={handleZoomOut}
+        className="w-10 h-10 flex items-center justify-center font-bold text-gray-700 hover:bg-orange-50 hover:text-orange-600 active:bg-orange-100 transition text-xl cursor-pointer"
+        title="Zoom out (Wider area)"
+        aria-label="Zoom out"
+      >
+        −
+      </button>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -633,12 +657,13 @@ export default function Home() {
               onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
               gestureHandling={'greedy'} 
               disableDefaultUI={false}
-              zoomControl={true}
+              zoomControl={false}
               mapTypeControl={false}
               streetViewControl={false}
               fullscreenControl={false}
             >
-              <MapResizeTrigger activeTab={mobileTab} center={mapCenter} />
+              <MapResizeTrigger activeTab={mobileTab} />
+              <MapControls />
               {results.map((r, i) => (
                 <Marker 
                   key={r.id} 
