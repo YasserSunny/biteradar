@@ -85,14 +85,14 @@ def rank_restaurants_with_gemini(dish_name: str, restaurant_data: List[Dict[str,
             prompt += f"Customer Reviews: {' | '.join(r.get('reviews', []))}\n\n"
             
         prompt += """
-Please analyze these reviews specifically looking for mentions of the dish the user is craving. 
-When ranking the restaurants, consider both the relevance of the reviews to the dish, AND the overall popularity and reliability of the restaurant (i.e., prioritize restaurants that have a high rating supported by a large number of total reviews over those with very few reviews).
+Please analyze these customer reviews and Foursquare diner tips specifically looking for mentions of the dish the user is craving. 
+When ranking the restaurants, consider both the relevance of the diner tips and reviews to the dish, AND the overall popularity and reliability of the restaurant (i.e., prioritize restaurants that have a high rating supported by a large number of total reviews over those with very few reviews).
 
 Return your response as a JSON array of objects.
 Each object must have:
 - "index": the integer index of the restaurant from the list above.
-- "reason": A short 1-2 sentence convincing reason why this restaurant is good for this specific dish, based on the reviews and overall popularity. If the reviews don't mention the dish, make a general recommendation based on the restaurant's quality.
-- "helpful_quote": Exact quote snippet extracted directly from the reviews mentioning the dish. Leave empty if none found.
+- "reason": A short 1-2 sentence convincing reason why this restaurant is good for this specific dish, citing details from the diner tips, reviews, or overall quality.
+- "helpful_quote": Exact quote snippet extracted directly from the customer reviews or Foursquare diner tips mentioning the dish. Leave empty if none found.
 
 Rank the array in order of best recommendation first.
 """
