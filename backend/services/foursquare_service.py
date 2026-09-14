@@ -5,20 +5,24 @@ from logger import get_logger
 
 logger = get_logger("foursquare_service")
 
+# Process-level circuit breaker: if API key is rejected with 401/403, stop calling Foursquare
+_foursquare_auth_invalid = False
+
 def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
     """
     Search for a matching place on Foursquare Places API v3 and fetch diner tips.
     Returns a dictionary containing fsq_id, tips list, and categories.
-    Fails silently and gracefully if FOURSQUARE_API_KEY is missing or the request times out.
+    Fails silently and gracefully if FOURSQUARE_API_KEY is missing, invalid, or times out.
     """
+    global _foursquare_auth_invalid
+
     result: Dict[str, Any] = {
         "fsq_id": None,
         "categories": [],
         "tips": []
     }
 
-    if not FOURSQUARE_API_KEY:
-        logger.debug("Foursquare API key missing; skipping Foursquare enrichment.")
+    if not FOURSQUARE_API_KEY or _foursquare_auth_invalid:
         return result
 
     headers = {
@@ -36,8 +40,16 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
             "limit": 1
         }
 
-        resp = requests.get(search_url, headers=headers, params=search_params, timeout=4.0)
-        if resp.status_code != 200:
+        resp = requests.get(search_url, headers=headers, params=search_params, timeout=2.5)
+        if resp.status_code in (401, 403):
+            _foursquare_auth_invalid = True
+            logger.warning(
+                f"Foursquare API key rejected (HTTP {resp.status_code}): {resp.text[:120]}. "
+                "Note: Foursquare API v3 keys typically start with 'fsq3'. "
+                "Skipping remaining Foursquare queries for this session."
+            )
+            return result
+        elif resp.status_code != 200:
             logger.warning(f"Foursquare search failed for '{name}' (HTTP {resp.status_code}): {resp.text[:150]}")
             return result
 
