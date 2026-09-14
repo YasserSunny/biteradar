@@ -5,6 +5,8 @@ class SearchRequest(BaseModel):
     dish_name: str
     location: str
     user_id: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 class ProfileRequest(BaseModel):
     user_id: str
@@ -40,6 +42,9 @@ class RestaurantResult(BaseModel):
     lat: float
     lng: float
     helpful: Optional[bool] = None
+    dietary_tags: Optional[List[str]] = []
+    amenities: Optional[List[str]] = []
+    dish_price: Optional[str] = None
 
 class FeedbackRequest(BaseModel):
     recommendation_id: int

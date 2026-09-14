@@ -13,8 +13,18 @@ logger = get_logger("app")
 
 # Ensure all database tables exist safely
 try:
+    from sqlalchemy import text
     models.Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified and initialized successfully.")
+    # Safe column migration check for newly added columns
+    with engine.connect() as conn:
+        for col_name in ["dietary_tags", "amenities", "dish_price"]:
+            try:
+                conn.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col_name} VARCHAR"))
+                conn.commit()
+                logger.info(f"Added column '{col_name}' to recommendations table.")
+            except Exception:
+                pass  # Column already exists
 except Exception as e:
     logger.error(f"Error during database table initialization: {e}", exc_info=True)
 

@@ -24,21 +24,39 @@ interface SearchHistoryItem {
   created_at: string;
 }
 
+interface Restaurant {
+  id: string;
+  place_id: string;
+  name: string;
+  rating: number;
+  total_reviews: number;
+  price_level?: string;
+  dish_price?: string;
+  dietary_tags?: string[];
+  amenities?: string[];
+  summary?: string;
+  open_now?: boolean;
+  website?: string;
+  reason: string;
+  helpful_quote?: string;
+  lat: number;
+  lng: number;
+  helpful?: boolean | null;
+}
+
 /**
  * Handles Google Maps viewport resize and recentering
  * when toggling between List and Map views on mobile.
  */
 function MapResizeTrigger({
   activeTab,
-  center,
 }: {
   activeTab: string;
-  center: { lat: number; lng: number };
 }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!map) return;
+    if (!map || activeTab !== 'map') return;
 
     const triggerResize = () => {
       const div = map.getDiv();
@@ -46,37 +64,63 @@ function MapResizeTrigger({
         if (typeof window !== "undefined" && (window as any).google?.maps?.event) {
           (window as any).google.maps.event.trigger(map, "resize");
         }
-        map.setCenter(center);
       }
     };
 
-    triggerResize();
-    const t1 = setTimeout(triggerResize, 100);
-    const t2 = setTimeout(triggerResize, 350);
-
-    const div = map.getDiv();
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined" && div) {
-      ro = new ResizeObserver(() => {
-        triggerResize();
-      });
-      ro.observe(div);
-    }
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      if (ro) ro.disconnect();
-    };
-  }, [map, activeTab, center]);
+    const t = setTimeout(triggerResize, 150);
+    return () => clearTimeout(t);
+  }, [map, activeTab]);
 
   return null;
+}
+
+/**
+ * Custom Zoom Controls providing reliable, touch-friendly Zoom In (+)
+ * and Zoom Out (-) actions directly via the Google Maps instance.
+ */
+function MapControls() {
+  const map = useMap();
+
+  const handleZoomIn = () => {
+    if (!map) return;
+    const current = map.getZoom() ?? 13;
+    map.setZoom(Math.min(21, current + 1));
+  };
+
+  const handleZoomOut = () => {
+    if (!map) return;
+    const current = map.getZoom() ?? 13;
+    map.setZoom(Math.max(2, current - 1));
+  };
+
+  return (
+    <div className="absolute right-3.5 bottom-6 flex flex-col bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-10 select-none">
+      <button
+        type="button"
+        onClick={handleZoomIn}
+        className="w-10 h-10 flex items-center justify-center font-bold text-gray-700 hover:bg-orange-50 hover:text-orange-600 active:bg-orange-100 border-b border-gray-100 transition text-xl cursor-pointer"
+        title="Zoom in (Closer detail)"
+        aria-label="Zoom in"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={handleZoomOut}
+        className="w-10 h-10 flex items-center justify-center font-bold text-gray-700 hover:bg-orange-50 hover:text-orange-600 active:bg-orange-100 transition text-xl cursor-pointer"
+        title="Zoom out (Wider area)"
+        aria-label="Zoom out"
+      >
+        −
+      </button>
+    </div>
+  );
 }
 
 export default function Home() {
   const [dishName, setDishName] = useState("");
   const [location, setLocation] = useState("");
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -89,6 +133,7 @@ export default function Home() {
   const [searchStep, setSearchStep] = useState<number | null>(null);
   const [mobileTab, setMobileTab] = useState<'list' | 'map'>('list');
   const [locationDetected, setLocationDetected] = useState(false);
+  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Default center (NYC initially, overwritten immediately by geolocation)
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 });
@@ -120,6 +165,7 @@ export default function Home() {
             const userLat = pos.coords.latitude;
             const userLng = pos.coords.longitude;
             setMapCenter({ lat: userLat, lng: userLng });
+            setSelectedCoords({ lat: userLat, lng: userLng });
             setLocationDetected(true);
 
             // Reverse geocode to get city name for search input if empty
@@ -143,6 +189,7 @@ export default function Home() {
               .then((ipData) => {
                 if (ipData.latitude && ipData.longitude) {
                   setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+                  setSelectedCoords({ lat: ipData.latitude, lng: ipData.longitude });
                 }
                 const city = ipData.city || "";
                 const region = ipData.region_code || ipData.region || "";
@@ -161,6 +208,7 @@ export default function Home() {
           .then((ipData) => {
             if (ipData.latitude && ipData.longitude) {
               setMapCenter({ lat: ipData.latitude, lng: ipData.longitude });
+              setSelectedCoords({ lat: ipData.latitude, lng: ipData.longitude });
             }
             const city = ipData.city || "";
             const region = ipData.region_code || ipData.region || "";
@@ -243,6 +291,18 @@ export default function Home() {
 
   const handleLocationSelect = (place: google.maps.places.PlaceResult | null, inputValue: string) => {
     setLocation(inputValue);
+    if (place && place.geometry && place.geometry.location) {
+      const lat = typeof place.geometry.location.lat === 'function'
+        ? place.geometry.location.lat()
+        : (place.geometry.location as any).lat;
+      const lng = typeof place.geometry.location.lng === 'function'
+        ? place.geometry.location.lng()
+        : (place.geometry.location as any).lng;
+      setSelectedCoords({ lat, lng });
+      setMapCenter({ lat, lng });
+    } else {
+      setSelectedCoords(null);
+    }
   };
 
   const executeSearch = async (targetDish: string, targetLocation: string) => {
@@ -270,12 +330,22 @@ export default function Home() {
     const t2 = setTimeout(() => setSearchStep(3), 3600);
 
     try {
+      const searchPayload: Record<string, any> = {
+        dish_name: finalDish,
+        location: finalLocation,
+        user_id: user?.uid,
+      };
+      if (selectedCoords) {
+        searchPayload.lat = selectedCoords.lat;
+        searchPayload.lng = selectedCoords.lng;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ dish_name: finalDish, location: finalLocation, user_id: user?.uid }),
+        body: JSON.stringify(searchPayload),
       });
 
       if (!response.ok) {
@@ -330,6 +400,7 @@ export default function Home() {
   const handleHistoryClick = async (item: SearchHistoryItem) => {
     setDishName(item.dish_name);
     setLocation(item.location);
+    setSelectedCoords(null);
     setLoading(true);
     setSearchStep(1);
     setResults([]);
@@ -472,6 +543,7 @@ export default function Home() {
               required
             />
             <Autocomplete
+              value={location}
               placeholder="Zip or City"
               className="w-48 p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-black"
               onPlaceSelect={handleLocationSelect}
@@ -585,12 +657,13 @@ export default function Home() {
               onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
               gestureHandling={'greedy'} 
               disableDefaultUI={false}
-              zoomControl={true}
+              zoomControl={false}
               mapTypeControl={false}
               streetViewControl={false}
               fullscreenControl={false}
             >
-              <MapResizeTrigger activeTab={mobileTab} center={mapCenter} />
+              <MapResizeTrigger activeTab={mobileTab} />
+              <MapControls />
               {results.map((r, i) => (
                 <Marker 
                   key={r.id} 
@@ -616,11 +689,16 @@ export default function Home() {
                         <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                           ★ {selectedPlace.rating} ({selectedPlace.total_reviews})
                         </span>
-                        {selectedPlace.price_level && (
+                        {selectedPlace.dish_price ? (
+                          <span className="text-amber-900 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded font-bold text-[10px] inline-flex items-center gap-0.5" title="Dish price estimate">
+                            <span>🏷️</span>
+                            <span>{selectedPlace.dish_price}</span>
+                          </span>
+                        ) : selectedPlace.price_level ? (
                           <span className="text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded font-medium">
                             {selectedPlace.price_level}
                           </span>
-                        )}
+                        ) : null}
                         {selectedPlace.open_now !== undefined && selectedPlace.open_now !== null && (
                           <span className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] inline-flex items-center gap-1 ${
                             selectedPlace.open_now 
@@ -632,6 +710,20 @@ export default function Home() {
                           </span>
                         )}
                       </div>
+                      {((selectedPlace.dietary_tags && selectedPlace.dietary_tags.length > 0) || (selectedPlace.amenities && selectedPlace.amenities.length > 0)) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedPlace.dietary_tags?.slice(0, 2).map((tag) => (
+                            <span key={tag} className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full font-semibold">
+                              {tag}
+                            </span>
+                          ))}
+                          {selectedPlace.amenities?.slice(0, 2).map((amenity) => (
+                            <span key={amenity} className="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded-full font-semibold">
+                              {amenity}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {selectedPlace.helpful_quote ? (
@@ -816,11 +908,16 @@ export default function Home() {
                       <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">
                         ★ {r.rating} ({r.total_reviews} reviews)
                       </span>
-                      {r.price_level && (
+                      {r.dish_price ? (
+                        <span className="bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold px-2 py-1 rounded flex items-center gap-1" title="Estimated or Menu Dish Price">
+                          <span>🏷️</span>
+                          <span>{r.dish_price}</span>
+                        </span>
+                      ) : r.price_level ? (
                         <span className="bg-gray-100 text-gray-800 text-xs font-bold px-2 py-1 rounded">
                           {r.price_level}
                         </span>
-                      )}
+                      ) : null}
                       {r.open_now !== undefined && r.open_now !== null && (
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                           r.open_now 
@@ -833,6 +930,30 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+
+                  {/* Dietary & Amenity Tags (OSM & Community Verified) */}
+                  {((r.dietary_tags && r.dietary_tags.length > 0) || (r.amenities && r.amenities.length > 0)) && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {r.dietary_tags?.map((tag) => (
+                        <span 
+                          key={tag} 
+                          className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                        >
+                          <span>{tag.toLowerCase().includes('vegan') || tag.toLowerCase().includes('veg') ? '🌱' : tag.toLowerCase().includes('halal') ? '🥩' : tag.toLowerCase().includes('kosher') ? '✡️' : '🌾'}</span>
+                          <span>{tag}</span>
+                        </span>
+                      ))}
+                      {r.amenities?.map((amenity) => (
+                        <span 
+                          key={amenity} 
+                          className="bg-blue-50 text-blue-800 border border-blue-200 text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                        >
+                          <span>{amenity.toLowerCase().includes('outdoor') ? '☀️' : amenity.toLowerCase().includes('wheelchair') ? '♿' : amenity.toLowerCase().includes('delivery') ? '🛵' : '🥡'}</span>
+                          <span>{amenity}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {r.summary && (
                     <p className="text-gray-500 text-xs mb-1">{r.summary}</p>
                   )}

@@ -253,5 +253,153 @@ class TestSearchAndResilience(unittest.TestCase):
         res_404 = self.client.get("/api/queries/99999/recommendations")
         self.assertEqual(res_404.status_code, 404)
 
+    @patch("routers.search.geocode_location")
+    @patch("routers.search.search_candidate_restaurants")
+    @patch("routers.search.fetch_place_details")
+    @patch("routers.search.fetch_yelp_details_and_reviews")
+    @patch("routers.search.fetch_foursquare_tips")
+    @patch("routers.search.fetch_osm_amenities_and_dietary")
+    @patch("routers.search.fetch_dish_pricing_and_menu")
+    @patch("routers.search.rank_restaurants_with_gemini")
+    def test_search_phase_4_data_enrichment(
+        self,
+        mock_rank,
+        mock_menu,
+        mock_osm,
+        mock_fsq,
+        mock_yelp,
+        mock_details,
+        mock_search_places,
+        mock_geocode
+    ):
+        """Verify that Foursquare tips, OSM tags, and menu pricing enrich the search response."""
+        mock_geocode.return_value = {"lat": 40.75, "lng": -73.98}
+        mock_search_places.return_value = [{"place_id": "nyc_halal_1", "name": "The Halal Guys"}]
+        mock_details.return_value = {
+            "name": "The Halal Guys",
+            "rating": 4.5,
+            "user_ratings_total": 8500,
+            "price_level": 1,
+            "editorial_summary": {"overview": "World-famous American Halal food cart"},
+            "opening_hours": {"open_now": True},
+            "website": "https://thehalalguys.com",
+            "geometry": {"location": {"lat": 40.76, "lng": -73.98}},
+            "reviews": [{"text": "Get the chicken and gyro combo platter!"}]
+        }
+        mock_yelp.return_value = {"price": "$", "categories": ["Middle Eastern", "Halal"], "reviews": []}
+        mock_fsq.return_value = {
+            "fsq_id": "fsq_halal_1",
+            "tips": [{"text": "Be careful with the red hot sauce, it's fiery!", "created_at": "2024-01-01"}]
+        }
+        mock_osm.return_value = {
+            "dietary_tags": ["Halal"],
+            "amenities": ["Outdoor Seating", "Takeout"]
+        }
+        mock_menu.return_value = {
+            "dish_price": "$12.99",
+            "menu_item_name": "Chicken & Gyro Combo Platter"
+        }
+        mock_rank.return_value = [
+            {
+                "index": 0,
+                "reason": "Iconic cart famous for legendary platters and white sauce.",
+                "helpful_quote": "Get the chicken and gyro combo platter!"
+            }
+        ]
+
+        res = self.client.post("/api/search", json={"dish_name": "Chicken and Rice", "location": "New York"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        item = data[0]
+        self.assertEqual(item["name"], "The Halal Guys")
+        self.assertEqual(item["dish_price"], "$12.99")
+        self.assertIn("Halal", item["dietary_tags"])
+        self.assertIn("Outdoor Seating", item["amenities"])
+
+        # Check DB persistence
+        db_rec = self.db.query(models.Recommendation).filter(models.Recommendation.place_id == "nyc_halal_1").first()
+        self.assertIsNotNone(db_rec)
+        self.assertEqual(db_rec.dish_price, "$12.99")
+        self.assertIn("Halal", db_rec.dietary_tags)
+        self.assertIn("Outdoor Seating", db_rec.amenities)
+
+        # Check Foursquare review saved to Review table
+        fsq_review = self.db.query(models.Review).filter(
+            models.Review.place_id == "nyc_halal_1",
+            models.Review.source == "foursquare"
+        ).first()
+        self.assertIsNotNone(fsq_review)
+        self.assertIn("red hot sauce", fsq_review.text)
+
+    @patch("routers.search.geocode_location")
+    @patch("routers.search.search_candidate_restaurants")
+    @patch("routers.search.fetch_place_details")
+    @patch("routers.search.rank_restaurants_with_gemini")
+    def test_search_with_client_coordinates_bypasses_geocoding(
+        self,
+        mock_rank,
+        mock_details,
+        mock_search_places,
+        mock_geocode
+    ):
+        """When client provides lat and lng, geocode_location must NOT be called."""
+        mock_search_places.return_value = [{"place_id": "dor_kebab_1", "name": "Nafas Mediterranean"}]
+        mock_details.return_value = {
+            "name": "Nafas Mediterranean",
+            "rating": 4.8,
+            "user_ratings_total": 450,
+            "geometry": {"location": {"lat": 33.898, "lng": -84.283}},
+            "reviews": [{"text": "Best lamb shish kebab in Doraville!"}]
+        }
+        mock_rank.return_value = [{"index": 0, "reason": "Delicious tender shish kebab."}]
+
+        res = self.client.post("/api/search", json={
+            "dish_name": "lamb shish kebab",
+            "location": "Doraville, GA",
+            "lat": 33.8981,
+            "lng": -84.2832
+        })
+        self.assertEqual(res.status_code, 200)
+        # Geocoding should NOT have been called because coordinates were supplied directly
+        mock_geocode.assert_not_called()
+        # Places search should have been called with the client's coordinates
+        mock_search_places.assert_called_once_with("lamb shish kebab", "Doraville, GA", 33.8981, -84.2832)
+
+    @patch("services.places_service.gmaps")
+    def test_distance_filtering_rejects_distant_places(self, mock_gmaps):
+        """Ensure candidates > 60km away (e.g. Orlando, FL from Georgia) are rejected."""
+        from services.places_service import search_candidate_restaurants, haversine_distance_km
+
+        # Doraville, GA coordinates: ~33.898, -84.283
+        doraville_lat, doraville_lng = 33.898, -84.283
+
+        # Orlando, FL coordinates: ~28.538, -81.379 (approx 650 km away)
+        orlando_lat, orlando_lng = 28.538, -81.379
+        dist_to_orlando = haversine_distance_km(doraville_lat, doraville_lng, orlando_lat, orlando_lng)
+        self.assertGreater(dist_to_orlando, 600)  # > 600 km away
+
+        # Mock gmaps.places returning 1 local restaurant in Doraville (2 km away) and 1 in Orlando (650 km away)
+        mock_gmaps.places.return_value = {
+            "results": [
+                {
+                    "place_id": "local_spot",
+                    "name": "Nafas Mediterranean Doraville",
+                    "geometry": {"location": {"lat": 33.905, "lng": -84.280}}
+                },
+                {
+                    "place_id": "orlando_spot",
+                    "name": "Orlando Shish Kebab House",
+                    "geometry": {"location": {"lat": 28.538, "lng": -81.379}}
+                }
+            ]
+        }
+
+        candidates = search_candidate_restaurants("lamb shish kebab", "Doraville, GA", doraville_lat, doraville_lng)
+        # Only the local spot in Doraville should pass the 60km filter
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["name"], "Nafas Mediterranean Doraville")
+        self.assertEqual(candidates[0]["place_id"], "local_spot")
+
 if __name__ == "__main__":
     unittest.main()
