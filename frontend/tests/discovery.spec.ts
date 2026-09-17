@@ -466,3 +466,34 @@ test("live Google Maps smoke @live", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Show list" }).click();
   await expect(page.locator("#restaurant-1")).toHaveClass(/selected/);
 });
+
+test("search progress animates through the previous three steps", async ({
+  page,
+}) => {
+  await fixtures(page);
+  await signIn(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/search", async (route) => {
+    await gate;
+    await route.fulfill({ json: restaurants });
+  });
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
+  await page.getByPlaceholder("City or ZIP code").fill("New York");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  const progress = page.getByRole("region", { name: "Search progress" });
+  await expect(progress).toBeVisible();
+  await expect(progress.getByRole("status")).toContainText("Step 1 of 3");
+  await expect(progress.getByRole("status")).toContainText("Step 2 of 3");
+  await expect(progress.getByRole("status")).toContainText("Step 3 of 3");
+  await expect(
+    progress.getByRole("heading", { name: "3. Making a list" }),
+  ).toBeVisible();
+  release();
+  await expect(progress).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Great spots for Ramen" }),
+  ).toBeVisible();
+});

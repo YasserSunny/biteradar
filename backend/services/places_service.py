@@ -83,13 +83,13 @@ def fetch_place_details(place_id: str) -> Dict[str, Any]:
                 'name',
                 'rating',
                 'user_ratings_total',
-                'review',
+                'reviews',
                 'geometry',
                 'price_level',
                 'editorial_summary',
                 'opening_hours',
                 'website',
-                'photos'
+                'photo'
             ]
         )
         return details.get('result', {})

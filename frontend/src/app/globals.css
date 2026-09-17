@@ -1906,3 +1906,117 @@ legend {
 .map-zoom-controls button:hover {
   background: var(--soft);
 }
+.search-progress {
+  padding: 24px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.progress-heading [role="status"] {
+  font-size: 11px;
+  color: var(--accent);
+}
+.progress-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.5s infinite;
+}
+.progress-track {
+  height: 6px;
+  background: var(--background);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.progress-track > div {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.7s ease;
+}
+.search-progress ol {
+  list-style: none;
+  padding: 0;
+  margin: 24px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.search-progress li {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+}
+.progress-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--background);
+  border-radius: 50%;
+  font-size: 12px;
+}
+.search-progress .current .progress-number {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 0 0 4px var(--soft);
+  animation: pulse 1.5s infinite;
+}
+.search-progress .complete .progress-number {
+  background: #eef3e7;
+  color: #476438;
+}
+.search-progress h3 {
+  font-size: 14px;
+  letter-spacing: 0;
+  margin-bottom: 5px;
+}
+.search-progress .current h3,
+.search-progress .complete h3 {
+  color: var(--foreground);
+}
+.search-progress li p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.progress-note {
+  margin-top: 20px;
+  font-size: 10px;
+  color: var(--muted);
+}
+@media (max-width: 767px) {
+  .search-progress {
+    padding: 20px 16px;
+  }
+  .progress-heading {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-pulse,
+  .search-progress .current .progress-number {
+    animation: none;
+  }
+  .progress-track > div {
+    transition: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .view-map[aria-busy="true"] .results-list {
+    display: flex;
+  }
+  .view-map[aria-busy="true"] .map-column {
+    display: none;
+  }
+}

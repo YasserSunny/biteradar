@@ -44,7 +44,7 @@ def search_context_and_key(request: SearchRequest):
     context["dish_name"] = request.dish_name.strip()
     context["location"] = request.location.strip()
     context["dietary_filters"] = sorted(set(tag.strip().lower() for tag in request.dietary_filters or []))
-    identity = {**context, "dish_name": context["dish_name"].lower(), "location": context["location"].lower()}
+    identity = {"version": 2, **context, "dish_name": context["dish_name"].lower(), "location": context["location"].lower()}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return context, key
 
@@ -214,8 +214,12 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 res = fetch_place_details(place_id)
 
                 name = res.get('name') or place.get('name', 'Unknown')
-                lat = res.get('geometry', {}).get('location', {}).get('lat', loc['lat'])
-                lng = res.get('geometry', {}).get('location', {}).get('lng', loc['lng'])
+                coordinates = res.get('geometry', {}).get('location') or place.get('geometry', {}).get('location') or {}
+                lat = coordinates.get('lat')
+                lng = coordinates.get('lng')
+                if lat is None or lng is None:
+                    logger.warning(f"Skipping '{name}': restaurant coordinates unavailable")
+                    continue
                 rating = float(res.get('rating') or place.get('rating', 0.0))
                 total_reviews = int(res.get('user_ratings_total') or place.get('user_ratings_total', 0))
                 open_now = res.get('opening_hours', {}).get('open_now')
@@ -475,6 +479,17 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
         if not query:
             logger.warning(f"Query recommendations target {query_id} not found.")
             raise HTTPException(status_code=404, detail="Query not found")
+
+        # Repair saved searches created by the previous city-center fallback.
+        coordinates = {(r.lat, r.lng) for r in query.recommendations}
+        if gmaps and len(query.recommendations) > 1 and len(coordinates) == 1:
+            for recommendation in query.recommendations:
+                details = fetch_place_details(recommendation.place_id)
+                point = details.get("geometry", {}).get("location", {})
+                if point.get("lat") is not None and point.get("lng") is not None:
+                    recommendation.lat = point["lat"]
+                    recommendation.lng = point["lng"]
+            db.commit()
 
         return [_serialize_recommendation(r, query.id, query.location) for r in query.recommendations]
 

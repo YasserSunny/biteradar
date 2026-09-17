@@ -67,3 +67,11 @@ Screenshots use deterministic demonstration restaurant data, with intentionally 
 | Results / map fallback | [View](results-desktop.png) | [View](results-mobile.png) |
 
 [Live Google Maps check](live-map-desktop.png)
+
+## Manual-testing fixes
+
+Place Details now requests the Python client's supported `photo` and `reviews` fields. Restaurant coordinates fall back to candidate-search geometry rather than the city center; entries without restaurant coordinates are skipped. Cache keys are versioned to avoid reusing the previously incorrect results. Saved searches whose restaurants all share one coordinate attempt a Place Details repair when opened.
+
+The previous estimated three-step search feedback is restored: **Searching → Compiling → Making a list**, with a progress bar, animated active step, and descriptions. Timers are cleared on completion, cancellation, and failure. These are timed UI estimates because the API returns one complete response rather than streaming phase events.
+
+Browser tests now use `.next-test` so they can run alongside the manual dev server.

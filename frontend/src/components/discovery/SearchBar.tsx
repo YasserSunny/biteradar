@@ -10,6 +10,7 @@ export function SearchBar({
   onChange,
   onSearch,
   loading,
+  searchStep = 1,
   hasMaps,
   compact = false,
 }: {
@@ -17,6 +18,7 @@ export function SearchBar({
   onChange: (value: SearchInput) => void;
   onSearch: (value: SearchInput) => void;
   loading: boolean;
+  searchStep?: number;
   hasMaps: boolean;
   compact?: boolean;
 }) {
@@ -121,7 +123,11 @@ export function SearchBar({
         className="button primary search-submit"
         disabled={loading || locating}
       >
-        <span>{loading ? "Finding your spots…" : "Find my dish"}</span>
+        <span>
+          {loading
+            ? ["Searching…", "Compiling…", "Making a list…"][searchStep - 1]
+            : "Find my dish"}
+        </span>
         <Icon name="arrow" />
       </button>
     </form>

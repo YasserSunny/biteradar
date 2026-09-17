@@ -17,6 +17,7 @@ import { SearchBar } from "./SearchBar";
 import { RestaurantCard, RestaurantPhoto } from "./RestaurantCard";
 import { RestaurantDetails } from "./RestaurantDetails";
 import { Concierge } from "./Concierge";
+import { SearchProgress } from "./SearchProgress";
 import { Panel } from "./Panel";
 const ResultsMap = dynamic(() => import("./ResultsMap"), {
   ssr: false,
@@ -222,6 +223,7 @@ function Workspace({ user }: { user: User }) {
             onChange={search.setDraft}
             onSearch={search.execute}
             loading={search.loading}
+            searchStep={search.searchStep}
             hasMaps={!!mapsKey}
             compact={hasSearch}
           />
@@ -392,6 +394,7 @@ function Workspace({ user }: { user: User }) {
               aria-busy={search.loading}
             >
               <div className="results-list">
+                {search.loading && <SearchProgress step={search.searchStep} />}
                 {search.loading && !search.results.length ? (
                   [0, 1, 2].map((i) => (
                     <div className="skeleton-card" key={i}>

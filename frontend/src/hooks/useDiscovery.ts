@@ -14,6 +14,7 @@ export function useDiscovery(userId: string, onComplete: () => void) {
   const [submitted, setSubmitted] = useState<SearchInput | null>(null);
   const [results, setResults] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchStep, setSearchStep] = useState(1);
   const [error, setError] = useState("");
   const [legacyHistory, setLegacyHistory] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -41,6 +42,13 @@ export function useDiscovery(userId: string, onComplete: () => void) {
       const controller = new AbortController();
       active.current = controller;
       setLoading(true);
+      setSearchStep(1);
+      const timers = [
+        setTimeout(() => setSearchStep(2), history ? 400 : 1600),
+        setTimeout(() => setSearchStep(3), history ? 800 : 3600),
+      ];
+      const clearSteps = () => timers.forEach(clearTimeout);
+      controller.signal.addEventListener("abort", clearSteps, { once: true });
       setError("");
       try {
         let data: Restaurant[];
@@ -79,6 +87,8 @@ export function useDiscovery(userId: string, onComplete: () => void) {
       } catch (err) {
         if (!controller.signal.aborted) setError(errorMessage(err));
       } finally {
+        clearSteps();
+        controller.signal.removeEventListener("abort", clearSteps);
         if (!controller.signal.aborted) setLoading(false);
       }
     },
@@ -143,6 +153,7 @@ export function useDiscovery(userId: string, onComplete: () => void) {
     results,
     setResults,
     loading,
+    searchStep,
     error,
     setError,
     selectedId,
