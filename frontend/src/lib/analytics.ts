@@ -25,7 +25,7 @@ export async function getClientAnalytics(): Promise<Analytics | null> {
   return initPromise;
 }
 
-export async function trackEvent(eventName: string, params?: Record<string, any>) {
+export async function trackEvent(eventName: string, params?: Record<string, string | number | boolean>) {
   try {
     const analytics = await getClientAnalytics();
     if (analytics) {

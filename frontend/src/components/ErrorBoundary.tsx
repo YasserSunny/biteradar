@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <div>
               <h2 className="text-xl font-bold text-gray-900">Something went wrong</h2>
               <p className="text-sm text-gray-500 mt-1">
-                BiteRadar encountered an unexpected view error. Don't worry, your search history and profile are safe.
+                BiteRadar encountered an unexpected view error. Please reload the page and try again.
               </p>
             </div>
             {this.state.error?.message && (

@@ -29,6 +29,7 @@ class SearchHistoryItem(BaseModel):
     dish_name: str
     location: str
     created_at: str
+    search_context: Optional[SearchRequest] = None
 
 class RestaurantResult(BaseModel):
     id: str  # Database recommendation ID, used for feedback & unique keys

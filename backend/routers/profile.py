@@ -86,7 +86,7 @@ def get_history(user_id: str, db: Session = Depends(get_db)):
         for h in histories:
             if not h.query:
                 continue
-            key = (h.query.dish_name.lower().strip(), h.query.location.lower().strip())
+            key = h.query.cache_key or (h.query.dish_name.lower().strip(), h.query.location.lower().strip())
             if key not in seen:
                 seen.add(key)
                 result.append(SearchHistoryItem(
@@ -94,7 +94,8 @@ def get_history(user_id: str, db: Session = Depends(get_db)):
                     query_id=h.query_id,
                     dish_name=h.query.dish_name,
                     location=h.query.location,
-                    created_at=h.created_at.isoformat() if h.created_at else ""
+                    created_at=h.created_at.isoformat() if h.created_at else "",
+                    search_context=json.loads(h.query.search_context) if h.query.search_context else None
                 ))
             if len(result) >= 5:
                 break

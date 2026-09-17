@@ -1,97 +1,61 @@
 "use client";
-
-import React, { useRef, useEffect, useState } from 'react';
-import { useMapsLibrary } from '@vis.gl/react-google-maps';
-
-interface AutocompleteProps {
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useMapsLibrary } from "@vis.gl/react-google-maps";
+interface Props {
+  id?: string;
   value?: string;
-  onPlaceSelect: (place: google.maps.places.PlaceResult | null, inputValue: string) => void;
+  onPlaceSelect: (
+    place: google.maps.places.PlaceResult | null,
+    text: string,
+  ) => void;
   placeholder?: string;
   className?: string;
 }
-
-export const Autocomplete = ({
-  value,
+export function Autocomplete({
+  id,
+  value = "",
   onPlaceSelect,
-  placeholder = "Location",
-  className = ""
-}: AutocompleteProps) => {
-  const [inputValue, setInputValue] = useState(value || "");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const places = useMapsLibrary('places');
-  const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null);
-
-  // Synchronize internal input value when parent value changes (e.g. reverse geocoding, history click)
+  placeholder = "City or ZIP code",
+  className = "",
+}: Props) {
+  const input = useRef<HTMLInputElement>(null);
+  const onSelect = useRef(onPlaceSelect);
+  const places = useMapsLibrary("places");
   useEffect(() => {
-    if (value !== undefined) {
-      setInputValue(value);
-    }
-  }, [value]);
-
+    onSelect.current = onPlaceSelect;
+  }, [onPlaceSelect]);
   useEffect(() => {
-    if (!places || !inputRef.current) return;
-
-    const options: google.maps.places.AutocompleteOptions = {
-      fields: ['geometry', 'name', 'formatted_address'],
-      types: ['geocode', 'establishment']
-    };
-
-    const ac = new places.Autocomplete(inputRef.current, options);
-    setAutocomplete(ac);
-
+    if (!places || !input.current) return;
+    const autocomplete = new places.Autocomplete(input.current, {
+      fields: ["geometry", "name", "formatted_address"],
+      types: ["geocode"],
+    });
+    const listener = autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      onSelect.current(
+        place,
+        place.formatted_address || place.name || input.current?.value || "",
+      );
+    });
     return () => {
-      if ((window as any).google?.maps?.event) {
-        (window as any).google.maps.event.clearInstanceListeners(ac);
-      }
+      listener.remove();
+      google.maps.event.clearInstanceListeners(autocomplete);
     };
   }, [places]);
-
-  useEffect(() => {
-    if (!autocomplete) return;
-
-    const listener = autocomplete.addListener('place_changed', () => {
-      const place = autocomplete.getPlace();
-      const chosenText = place?.formatted_address || place?.name || inputRef.current?.value || "";
-
-      if (chosenText) {
-        setInputValue(chosenText);
-      }
-      onPlaceSelect(place, chosenText);
-    });
-
-    return () => {
-      if ((window as any).google?.maps?.event && listener) {
-        (window as any).google.maps.event.removeListener(listener);
-      }
-    };
-  }, [autocomplete, onPlaceSelect]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const pacContainer = document.querySelector('.pac-container') as HTMLElement | null;
-      if (pacContainer && window.getComputedStyle(pacContainer).display !== 'none') {
-        const selected = pacContainer.querySelector('.pac-item-selected');
-        if (selected) {
-          // Autocomplete suggestion is highlighted; let Google select it first rather than premature form submit
-          e.preventDefault();
-        }
-      }
-    }
-  };
-
+  function keyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && document.querySelector(".pac-item-selected"))
+      event.preventDefault();
+  }
   return (
     <input
-      ref={inputRef}
-      value={inputValue}
-      onChange={(e) => {
-        setInputValue(e.target.value);
-        onPlaceSelect(null, e.target.value); // Pass raw text if typing freely
-      }}
-      onKeyDown={handleKeyDown}
-      type="text"
+      id={id}
+      ref={input}
+      value={value}
+      onChange={(e) => onPlaceSelect(null, e.target.value)}
+      onKeyDown={keyDown}
       placeholder={placeholder}
       className={className}
       required
     />
   );
-};
+}

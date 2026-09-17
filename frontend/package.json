@@ -6,7 +6,10 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check src/components/discovery src/hooks src/lib/types.ts src/app/page.tsx src/app/globals.css tests playwright.config.ts"
   },
   "dependencies": {
     "@vis.gl/react-google-maps": "^1.10.0",
@@ -16,12 +19,14 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "prettier": "^3.9.7",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
