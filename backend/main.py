@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 import models
 from database import engine, run_database_migrations
-from routers import search, profile, chat, analytics
+from routers import search, profile, chat, analytics, search_jobs
 from logger import get_logger
 
 logger = get_logger("app")
@@ -74,6 +74,7 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
 
 # Register route modules
 app.include_router(search.router)
+app.include_router(search_jobs.router)
 app.include_router(profile.router)
 app.include_router(chat.router)
 app.include_router(analytics.router)

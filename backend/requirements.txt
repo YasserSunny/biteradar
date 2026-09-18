@@ -14,6 +14,7 @@ psycopg2-binary>=2.9.10
 googlemaps>=4.10.0
 google-genai>=1.0.0
 requests>=2.32.0
+google-auth>=2.0.0
 
 # Testing & Development
 httpx>=0.28.0

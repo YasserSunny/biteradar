@@ -117,3 +117,17 @@ class Review(Base):
     text = Column(String)
     
     place = relationship("Place", back_populates="reviews")
+
+
+class SearchJob(Base):
+    __tablename__ = "search_jobs"
+
+    id = Column(String(36), primary_key=True)
+    request_json = Column(String, nullable=False)
+    status = Column(String(16), nullable=False, default="queued")
+    result_json = Column(String, nullable=True)
+    error = Column(String, nullable=True)
+    lease_token = Column(String(36), nullable=True)
+    lease_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

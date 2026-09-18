@@ -37,6 +37,9 @@ const restaurants = [
     photo_url: "/missing-photo",
   },
 ];
+function completedJob(results: typeof restaurants) {
+  return { job_id: "test-job", status: "completed", results, error: null };
+}
 const saved: SearchInput = {
   dish_name: "Ramen",
   location: "Brooklyn",
@@ -79,9 +82,9 @@ async function fixtures(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS")
       return route.fulfill({ status: 204 });
-    if (path === "/api/search") {
+    if (path === "/api/search-jobs") {
       searches.push(route.request().postDataJSON());
-      return route.fulfill({ json: restaurants });
+      return route.fulfill({ json: completedJob(restaurants) });
     }
     if (path.startsWith("/api/profile/"))
       return route.fulfill({
@@ -159,13 +162,13 @@ async function signIn(page: Page, url = "/") {
     page.getByRole("button", { name: "Open account menu" }),
   ).toBeVisible();
 }
-async function search(page: Page) {
+async function search(page: Page, timeout = 5000) {
   await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
   await page.getByPlaceholder("City or ZIP code").fill("New York");
   await page.getByRole("button", { name: "Find my dish" }).click();
   await expect(
     page.getByRole("heading", { name: "Great spots for Ramen" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout });
 }
 async function noOverflow(page: Page) {
   expect(
@@ -333,10 +336,15 @@ test("empty and failed searches leave the app usable", async ({ page }) => {
   await fixtures(page);
   await signIn(page);
   await search(page);
-  await page.route("**/api/search", (route) =>
+  await page.route("**/api/search-jobs", (route) =>
     route.fulfill({
-      status: 503,
-      json: { detail: "Search is temporarily unavailable." },
+      status: 202,
+      json: {
+        job_id: "test-job",
+        status: "failed",
+        results: null,
+        error: "Search is temporarily unavailable.",
+      },
     }),
   );
   await page.getByRole("button", { name: "Find my dish" }).click();
@@ -346,7 +354,9 @@ test("empty and failed searches leave the app usable", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "View details" }).first(),
   ).toBeVisible();
-  await page.route("**/api/search", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/search-jobs", (route) =>
+    route.fulfill({ json: completedJob([]) }),
+  );
   await page.getByRole("button", { name: "Find my dish" }).click();
   await expect(
     page.getByRole("heading", { name: "No spots found this time" }),
@@ -410,14 +420,14 @@ test("returning home cancels an in-flight search", async ({ page }) => {
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/search", async (route) => {
+  await page.route("**/api/search-jobs", async (route) => {
     await gate;
-    await route.fulfill({ json: restaurants }).catch(() => {});
+    await route.fulfill({ json: completedJob(restaurants) }).catch(() => {});
     complete();
   });
   await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
   await page.getByPlaceholder("City or ZIP code").fill("New York");
-  const incoming = page.waitForRequest("**/api/search");
+  const incoming = page.waitForRequest("**/api/search-jobs");
   await page.getByRole("button", { name: "Find my dish" }).click();
   await incoming;
   await page.getByRole("link", { name: "BiteRadar home" }).click();
@@ -477,9 +487,9 @@ test("search progress animates through the previous three steps", async ({
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/search", async (route) => {
+  await page.route("**/api/search-jobs", async (route) => {
     await gate;
-    await route.fulfill({ json: restaurants });
+    await route.fulfill({ json: completedJob(restaurants) });
   });
   await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
   await page.getByPlaceholder("City or ZIP code").fill("New York");
@@ -497,4 +507,147 @@ test("search progress animates through the previous three steps", async ({
   await expect(
     page.getByRole("heading", { name: "Great spots for Ramen" }),
   ).toBeVisible();
+});
+
+test("lost submission and polling responses reconnect to one job", async ({
+  page,
+}) => {
+  await fixtures(page);
+  await signIn(page);
+  const ids: string[] = [];
+  let polls = 0;
+  await page.route("**/api/search-jobs", async (route) => {
+    const id = route.request().headers()["idempotency-key"];
+    ids.push(id);
+    if (ids.length === 1) return route.abort("failed");
+    await route.fulfill({
+      status: 202,
+      json: { job_id: id, status: "running", results: null, error: null },
+    });
+  });
+  await page.route("**/api/search-jobs/*", async (route) => {
+    polls += 1;
+    if (polls === 1) return route.abort("failed");
+    if (polls === 2) return route.fulfill({ json: null });
+    await route.fulfill({ json: completedJob(restaurants) });
+  });
+  await search(page, 15_000);
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).toBe(ids[1]);
+  expect(polls).toBe(3);
+  await expect(page.locator(".error-banner")).toHaveCount(0);
+});
+
+test("reloading reconnects to the pending search ID", async ({ page }) => {
+  await fixtures(page);
+  await signIn(page);
+  const ids: string[] = [];
+  let ready = false;
+  await page.route("**/api/search-jobs", async (route) => {
+    const id = route.request().headers()["idempotency-key"];
+    ids.push(id);
+    await route.fulfill({
+      status: 202,
+      json: { job_id: id, status: "running", results: null, error: null },
+    });
+  });
+  await page.route("**/api/search-jobs/*", async (route) => {
+    await route.fulfill({
+      json: ready
+        ? completedJob(restaurants)
+        : { job_id: ids[0], status: "running", results: null, error: null },
+    });
+  });
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
+  await page.getByPlaceholder("City or ZIP code").fill("New York");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  await expect.poll(() => ids.length).toBe(1);
+  await page.reload();
+  await expect.poll(() => ids.length).toBe(2);
+  expect(ids[0]).toBe(ids[1]);
+  ready = true;
+  await expect(
+    page.getByRole("heading", { name: "Great spots for Ramen" }),
+  ).toBeVisible();
+});
+
+test("changing searches supersedes a pending job without stale results", async ({
+  page,
+}) => {
+  await fixtures(page);
+  await signIn(page);
+  const inputs: string[] = [];
+  await page.route("**/api/search-jobs", async (route) => {
+    const body = route.request().postDataJSON();
+    inputs.push(body.dish_name);
+    await route.fulfill({
+      status: 202,
+      json:
+        body.dish_name === "Ramen"
+          ? {
+              job_id: route.request().headers()["idempotency-key"],
+              status: "running",
+              results: null,
+              error: null,
+            }
+          : completedJob(restaurants),
+    });
+  });
+  await page.route("**/api/search-jobs/*", (route) =>
+    route.fulfill({ json: { status: "running", results: null, error: null } }),
+  );
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
+  await page.getByPlaceholder("City or ZIP code").fill("New York");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  await expect.poll(() => inputs.length).toBe(1);
+  await page.getByRole("link", { name: "BiteRadar home" }).click();
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Tacos");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Great spots for Tacos" }),
+  ).toBeVisible();
+  expect(inputs).toEqual(["Ramen", "Tacos"]);
+});
+
+test("a 53-second search completes through short polls without resubmission", async ({
+  page,
+}) => {
+  test.setTimeout(75_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fixtures(page);
+  await signIn(page);
+  let submitted = 0;
+  let polls = 0;
+  let started = 0;
+  await page.route("**/api/search-jobs", async (route) => {
+    submitted += 1;
+    started = Date.now();
+    await route.fulfill({
+      status: 202,
+      json: {
+        job_id: route.request().headers()["idempotency-key"],
+        status: "running",
+        results: null,
+        error: null,
+      },
+    });
+  });
+  await page.route("**/api/search-jobs/*", async (route) => {
+    polls += 1;
+    await route.fulfill({
+      json:
+        Date.now() - started >= 53_000
+          ? completedJob(restaurants)
+          : { status: "running", results: null, error: null },
+    });
+  });
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Ramen");
+  await page.getByPlaceholder("City or ZIP code").fill("New York");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Great spots for Ramen" }),
+  ).toBeVisible({ timeout: 65_000 });
+  expect(submitted).toBe(1);
+  expect(polls).toBeGreaterThan(40);
+  await expect(page.locator(".error-banner")).toHaveCount(0);
 });
