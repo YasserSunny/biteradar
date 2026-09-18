@@ -136,6 +136,45 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             db.rollback()
             logger.warning(f"Could not read search cache from DB: {cache_err}")
 
+        if not existing_query and request.lat is not None and request.lng is not None:
+            # New text-only searches retain their fast text key, but record their
+            # resolved coordinates so autocomplete can safely reuse them too.
+            _, text_key = search_context_and_key(request.model_copy(update={"lat": None, "lng": None}))
+            try:
+                candidate = db.query(models.SearchQuery).filter(
+                    models.SearchQuery.cache_key == text_key,
+                    models.SearchQuery.recommendations.any()
+                ).order_by(models.SearchQuery.id.desc()).first()
+                saved = json.loads(candidate.search_context) if candidate and candidate.search_context else {}
+                if saved.get("lat") == request.lat and saved.get("lng") == request.lng:
+                    existing_query = candidate
+            except Exception as cache_err:
+                db.rollback()
+                logger.warning(f"Could not read equivalent text cache: {cache_err}")
+
+        if not existing_query:
+            if not gmaps:
+                raise HTTPException(status_code=503, detail="Search is temporarily unavailable. Please try again later.")
+            # A URL or typed city omits autocomplete coordinates. Resolve that city
+            # before declaring a miss so it can match the same selected location.
+            if request.lat is not None and request.lng is not None:
+                loc = {"lat": request.lat, "lng": request.lng}
+            else:
+                loc = geocode_location(loc_str)
+                if not loc:
+                    raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
+            resolved_request = request.model_copy(update={"lat": loc["lat"], "lng": loc["lng"]})
+            context, resolved_key = search_context_and_key(resolved_request)
+            if resolved_key != cache_key:
+                try:
+                    existing_query = db.query(models.SearchQuery).filter(
+                        models.SearchQuery.cache_key == resolved_key,
+                        models.SearchQuery.recommendations.any()
+                    ).order_by(models.SearchQuery.id.desc()).first()
+                except Exception as cache_err:
+                    db.rollback()
+                    logger.warning(f"Could not read resolved search cache: {cache_err}")
+
         if existing_query and existing_query.recommendations:
             logger.info(f"Cache HIT for query_id={existing_query.id} ('{dish}' in '{loc_str}')")
             if not existing_query.dish_id and dish_record:
@@ -157,19 +196,6 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             return [_serialize_recommendation(r, existing_query.id, loc_str) for r in existing_query.recommendations]
 
         logger.info(f"Cache MISS for '{dish}' in '{loc_str}'. Calling external APIs...")
-
-        if not gmaps:
-            raise HTTPException(status_code=503, detail="Search is temporarily unavailable. Please try again later.")
-
-        # 1. Geocode location to get lat/lng (or use client-provided coordinates)
-        if request.lat is not None and request.lng is not None:
-            loc = {"lat": request.lat, "lng": request.lng}
-            logger.info(f"Using client-provided coordinates for '{loc_str}': lat={loc['lat']}, lng={loc['lng']}")
-        else:
-            loc = geocode_location(loc_str)
-            if not loc:
-                logger.warning(f"Geocoding failed for location: '{loc_str}'")
-                raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
 
         # Save new search query to DB safely
         try:

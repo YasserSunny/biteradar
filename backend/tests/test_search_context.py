@@ -86,3 +86,44 @@ def test_migration_preserves_legacy_rows_and_is_idempotent():
     with engine.connect() as connection:
         assert connection.execute(text('SELECT dish_name, cache_key FROM search_queries WHERE id=1')).one() == ('Ramen', None)
     engine.dispose()
+
+
+def test_text_search_reuses_autocomplete_cache_after_resolving_location(context_client):
+    client, session = context_client
+    selected = {'dish_name': 'Persian Bakery', 'location': 'Marietta, GA, USA', 'lat': 33.9532531, 'lng': -84.5499358}
+    query = seed(session, selected)
+    with patch('routers.search.gmaps', object()), patch('routers.search.geocode_location', return_value={'lat': selected['lat'], 'lng': selected['lng']}) as geocode, patch('routers.search.search_candidate_restaurants') as providers, patch('routers.search.rank_restaurants_with_gemini') as rank:
+        response = client.post('/api/search', json={'dish_name': selected['dish_name'], 'location': selected['location']})
+    assert response.status_code == 200
+    assert response.json()[0]['query_id'] == query.id
+    geocode.assert_called_once()
+    providers.assert_not_called()
+    rank.assert_not_called()
+    assert session.query(models.SearchQuery).count() == 1
+
+
+def test_resolved_location_keeps_coordinate_cache_separation(context_client):
+    client, session = context_client
+    selected = {'dish_name': 'Ramen', 'location': 'New York', 'lat': 40.7, 'lng': -74}
+    seed(session, selected)
+    with patch('routers.search.gmaps', object()), patch('routers.search.geocode_location', return_value={'lat': 41, 'lng': -74}), patch('routers.search.search_candidate_restaurants', return_value=[]) as providers:
+        response = client.post('/api/search', json={'dish_name': 'Ramen', 'location': 'New York'})
+    assert response.status_code == 200
+    assert response.json() == []
+    providers.assert_called_once()
+
+
+def test_autocomplete_reuses_text_cache_only_when_resolved_coordinates_match(context_client):
+    client, session = context_client
+    selected = {'dish_name': 'Ramen', 'location': 'New York', 'lat': 40.7, 'lng': -74}
+    query = seed(session, selected)
+    _, query.cache_key = search_context_and_key(SearchRequest(dish_name='Ramen', location='New York'))
+    session.commit()
+    with patch('routers.search.gmaps', None), patch('routers.search.geocode_location') as geocode, patch('routers.search.search_candidate_restaurants') as providers:
+        response = client.post('/api/search', json=selected)
+        different = client.post('/api/search', json={**selected, 'lat': 41})
+    assert response.status_code == 200
+    assert response.json()[0]['query_id'] == query.id
+    assert different.status_code == 503
+    providers.assert_not_called()
+    geocode.assert_not_called()
