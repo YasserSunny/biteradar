@@ -16,7 +16,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       BITERADAR_TEST_BUILD: "1",
-      NEXT_PUBLIC_API_BASE_URL: "http://127.0.0.1:8100",
+      API_BACKEND_URL: "http://127.0.0.1:8100",
       ...(process.env.BITERADAR_LIVE_MAPS
         ? {}
         : { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "" }),

@@ -74,7 +74,8 @@ async function fixtures(page: Page) {
           },
     }),
   );
-  await page.route("http://127.0.0.1:8100/**", async (route) => {
+  // Only intercept the frontend origin: direct browser-to-backend calls must fail.
+  await page.route("http://127.0.0.1:3100/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS")
       return route.fulfill({ status: 204 });
