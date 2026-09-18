@@ -1,5 +1,6 @@
 from typing import List, Optional
 import json
+import hashlib
 import urllib.parse
 import requests
 from fastapi import APIRouter, HTTPException, Depends, Response
@@ -38,6 +39,42 @@ def _generate_reservation_url(restaurant_name: str, location: str) -> str:
     query = urllib.parse.quote_plus(f"{restaurant_name} {location}")
     return f"https://www.opentable.com/s?term={query}"
 
+def search_context_and_key(request: SearchRequest):
+    context = request.model_dump(exclude={"user_id"})
+    context["dish_name"] = request.dish_name.strip()
+    context["location"] = request.location.strip()
+    context["dietary_filters"] = sorted(set(tag.strip().lower() for tag in request.dietary_filters or []))
+    identity = {"version": 2, **context, "dish_name": context["dish_name"].lower(), "location": context["location"].lower()}
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return context, key
+
+
+def _serialize_recommendation(r, query_id, location):
+    return RestaurantResult(
+        id=str(r.id),
+        place_id=r.place_id,
+        name=r.name,
+        rating=r.rating,
+        total_reviews=r.total_reviews,
+        price_level=r.price_level,
+        dish_price=r.dish_price,
+        dietary_tags=_parse_json_list(r.dietary_tags),
+        amenities=_parse_json_list(r.amenities),
+        summary=r.summary,
+        open_now=r.open_now,
+        website=r.website,
+        reason=r.reason,
+        helpful_quote=r.helpful_quote,
+        lat=r.lat,
+        lng=r.lng,
+        helpful=r.helpful,
+        photo_url=r.photo_url,
+        delivery_url=r.delivery_url or _generate_delivery_url(r.name, location),
+        reservation_url=r.reservation_url or _generate_reservation_url(r.name, location),
+        query_id=query_id
+    )
+
+
 router = APIRouter(prefix="/api", tags=["search"])
 
 @router.post("/search", response_model=List[RestaurantResult])
@@ -51,6 +88,8 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="location cannot be empty.")
 
     logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', user_id='{request.user_id}', dietary={request.dietary_filters}, price={request.price_tier}, radius={request.max_distance_km}")
+
+    context, cache_key = search_context_and_key(request)
 
     # Track / link dish in dishes catalog safely
     dish_record = None
@@ -85,21 +124,56 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         db.rollback()
         logger.warning(f"Dishes catalog operation skipped due to error: {e}")
 
-    if not gmaps:
-        logger.warning("Google Maps client is unavailable; cannot perform live search.")
-        return []
-
     try:
-        # Check cache (case insensitive exact match)
+        # Match the entire normalized search context, excluding legacy entries.
         existing_query = None
         try:
             existing_query = db.query(models.SearchQuery).filter(
-                func.lower(models.SearchQuery.dish_name) == dish.lower(),
-                func.lower(models.SearchQuery.location) == loc_str.lower()
-            ).first()
+                models.SearchQuery.cache_key == cache_key,
+                models.SearchQuery.recommendations.any()
+            ).order_by(models.SearchQuery.id.desc()).first()
         except Exception as cache_err:
             db.rollback()
             logger.warning(f"Could not read search cache from DB: {cache_err}")
+
+        if not existing_query and request.lat is not None and request.lng is not None:
+            # New text-only searches retain their fast text key, but record their
+            # resolved coordinates so autocomplete can safely reuse them too.
+            _, text_key = search_context_and_key(request.model_copy(update={"lat": None, "lng": None}))
+            try:
+                candidate = db.query(models.SearchQuery).filter(
+                    models.SearchQuery.cache_key == text_key,
+                    models.SearchQuery.recommendations.any()
+                ).order_by(models.SearchQuery.id.desc()).first()
+                saved = json.loads(candidate.search_context) if candidate and candidate.search_context else {}
+                if saved.get("lat") == request.lat and saved.get("lng") == request.lng:
+                    existing_query = candidate
+            except Exception as cache_err:
+                db.rollback()
+                logger.warning(f"Could not read equivalent text cache: {cache_err}")
+
+        if not existing_query:
+            if not gmaps:
+                raise HTTPException(status_code=503, detail="Search is temporarily unavailable. Please try again later.")
+            # A URL or typed city omits autocomplete coordinates. Resolve that city
+            # before declaring a miss so it can match the same selected location.
+            if request.lat is not None and request.lng is not None:
+                loc = {"lat": request.lat, "lng": request.lng}
+            else:
+                loc = geocode_location(loc_str)
+                if not loc:
+                    raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
+            resolved_request = request.model_copy(update={"lat": loc["lat"], "lng": loc["lng"]})
+            context, resolved_key = search_context_and_key(resolved_request)
+            if resolved_key != cache_key:
+                try:
+                    existing_query = db.query(models.SearchQuery).filter(
+                        models.SearchQuery.cache_key == resolved_key,
+                        models.SearchQuery.recommendations.any()
+                    ).order_by(models.SearchQuery.id.desc()).first()
+                except Exception as cache_err:
+                    db.rollback()
+                    logger.warning(f"Could not read resolved search cache: {cache_err}")
 
         if existing_query and existing_query.recommendations:
             logger.info(f"Cache HIT for query_id={existing_query.id} ('{dish}' in '{loc_str}')")
@@ -119,52 +193,18 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     db.rollback()
                     logger.warning(f"Could not record search history for cache hit: {e}")
 
-            return [
-                RestaurantResult(
-                    id=str(r.id),
-                    place_id=r.place_id,
-                    name=r.name,
-                    rating=r.rating,
-                    total_reviews=r.total_reviews,
-                    price_level=r.price_level,
-                    dish_price=r.dish_price,
-                    dietary_tags=_parse_json_list(r.dietary_tags),
-                    amenities=_parse_json_list(r.amenities),
-                    summary=r.summary,
-                    open_now=r.open_now,
-                    website=r.website,
-                    reason=r.reason,
-                    helpful_quote=r.helpful_quote,
-                    lat=r.lat,
-                    lng=r.lng,
-                    helpful=r.helpful,
-                    photo_url=r.photo_url,
-                    delivery_url=r.delivery_url or _generate_delivery_url(r.name, loc_str),
-                    reservation_url=r.reservation_url or _generate_reservation_url(r.name, loc_str),
-                    query_id=existing_query.id
-                )
-
-                for r in existing_query.recommendations
-            ]
+            return [_serialize_recommendation(r, existing_query.id, loc_str) for r in existing_query.recommendations]
 
         logger.info(f"Cache MISS for '{dish}' in '{loc_str}'. Calling external APIs...")
-
-        # 1. Geocode location to get lat/lng (or use client-provided coordinates)
-        if request.lat is not None and request.lng is not None:
-            loc = {"lat": request.lat, "lng": request.lng}
-            logger.info(f"Using client-provided coordinates for '{loc_str}': lat={loc['lat']}, lng={loc['lng']}")
-        else:
-            loc = geocode_location(loc_str)
-            if not loc:
-                logger.warning(f"Geocoding failed for location: '{loc_str}'")
-                raise HTTPException(status_code=404, detail=f"Location '{loc_str}' could not be resolved.")
 
         # Save new search query to DB safely
         try:
             db_query = models.SearchQuery(
                 dish_name=dish,
                 location=loc_str,
-                dish_id=dish_record.id if dish_record else None
+                dish_id=dish_record.id if dish_record else None,
+                search_context=json.dumps(context),
+                cache_key=cache_key
             )
             db.add(db_query)
             db.commit()
@@ -200,8 +240,12 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 res = fetch_place_details(place_id)
 
                 name = res.get('name') or place.get('name', 'Unknown')
-                lat = res.get('geometry', {}).get('location', {}).get('lat', loc['lat'])
-                lng = res.get('geometry', {}).get('location', {}).get('lng', loc['lng'])
+                coordinates = res.get('geometry', {}).get('location') or place.get('geometry', {}).get('location') or {}
+                lat = coordinates.get('lat')
+                lng = coordinates.get('lng')
+                if lat is None or lng is None:
+                    logger.warning(f"Skipping '{name}': restaurant coordinates unavailable")
+                    continue
                 rating = float(res.get('rating') or place.get('rating', 0.0))
                 total_reviews = int(res.get('user_ratings_total') or place.get('user_ratings_total', 0))
                 open_now = res.get('opening_hours', {}).get('open_now')
@@ -462,32 +506,18 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
             logger.warning(f"Query recommendations target {query_id} not found.")
             raise HTTPException(status_code=404, detail="Query not found")
 
-        return [
-            RestaurantResult(
-                id=str(r.id),
-                place_id=r.place_id,
-                name=r.name,
-                rating=r.rating,
-                total_reviews=r.total_reviews,
-                price_level=r.price_level,
-                dish_price=r.dish_price,
-                dietary_tags=_parse_json_list(r.dietary_tags),
-                amenities=_parse_json_list(r.amenities),
-                summary=r.summary,
-                open_now=r.open_now,
-                website=r.website,
-                reason=r.reason,
-                helpful_quote=r.helpful_quote,
-                lat=r.lat,
-                lng=r.lng,
-                helpful=r.helpful,
-                photo_url=r.photo_url,
-                delivery_url=r.delivery_url or _generate_delivery_url(r.name, query.location),
-                reservation_url=r.reservation_url or _generate_reservation_url(r.name, query.location),
-                query_id=query.id
-            )
-            for r in query.recommendations
-        ]
+        # Repair saved searches created by the previous city-center fallback.
+        coordinates = {(r.lat, r.lng) for r in query.recommendations}
+        if gmaps and len(query.recommendations) > 1 and len(coordinates) == 1:
+            for recommendation in query.recommendations:
+                details = fetch_place_details(recommendation.place_id)
+                point = details.get("geometry", {}).get("location", {})
+                if point.get("lat") is not None and point.get("lng") is not None:
+                    recommendation.lat = point["lat"]
+                    recommendation.lng = point["lng"]
+            db.commit()
+
+        return [_serialize_recommendation(r, query.id, query.location) for r in query.recommendations]
 
     except HTTPException:
         raise

@@ -32,3 +32,10 @@ backend/.env.local
 # Logs
 backend/logs/
 *.log
+
+# Browser test artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/tsconfig.tsbuildinfo
+
+frontend/.next-test/

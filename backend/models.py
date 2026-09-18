@@ -28,6 +28,8 @@ class SearchQuery(Base):
     dish_name = Column(String, index=True)
     location = Column(String, index=True)
     dish_id = Column(Integer, ForeignKey("dishes.id"), nullable=True)
+    search_context = Column(String, nullable=True)
+    cache_key = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     dish = relationship("Dish", back_populates="queries")

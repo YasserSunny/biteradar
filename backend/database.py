@@ -68,6 +68,13 @@ def run_database_migrations(target_engine=None):
                 except Exception as col_err:
                     logger.warning(f"Could not add column 'dish_id' to search_queries: {col_err}")
 
+            for col_name in ["search_context", "cache_key"]:
+                if col_name not in sq_cols:
+                    with eng.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE search_queries ADD COLUMN {col_name} VARCHAR"))
+            with eng.begin() as conn:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_search_queries_cache_key ON search_queries (cache_key)"))
+
         # 3. dishes table migrations
         if "dishes" in existing_tables:
             dish_cols = {col["name"] for col in inspector.get_columns("dishes")}

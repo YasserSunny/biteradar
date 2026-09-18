@@ -1,4 +1,7 @@
 import unittest
+import json
+from routers.search import search_context_and_key
+from schemas import SearchRequest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -49,7 +52,8 @@ class TestSearchAndResilience(unittest.TestCase):
     def test_search_cache_hit(self):
         """Test that cached queries return immediately without external API calls."""
         # 1. Create existing search query and recommendations in DB
-        query = models.SearchQuery(dish_name="Croissant", location="Paris")
+        context, key = search_context_and_key(SearchRequest(dish_name="Croissant", location="Paris"))
+        query = models.SearchQuery(dish_name="Croissant", location="Paris", search_context=json.dumps(context), cache_key=key)
         self.db.add(query)
         self.db.commit()
         self.db.refresh(query)
