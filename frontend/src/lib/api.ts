@@ -1,13 +1,10 @@
 /**
  * BiteRadar API Configuration
  *
- * Resolves the backend API base URL dynamically:
- * - In production: set NEXT_PUBLIC_API_BASE_URL (e.g. https://biteradar-api-xyz.a.run.app)
- * - In local development: defaults to http://localhost:8000
+ * Keep browser requests on the frontend's origin. Next.js forwards /api to the
+ * configured backend, so localhost refers to the server rather than a phone.
  */
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  "http://localhost:8000";
+export const API_BASE_URL = "";
 
 export class ApiError extends Error {
   constructor(

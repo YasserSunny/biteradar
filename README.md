@@ -83,3 +83,17 @@ npm run dev -- --webpack
 ```
 
 Navigate to `http://localhost:3000` to log in and start searching!
+
+### Testing from a phone
+
+The browser sends API requests to the frontend's `/api` routes. Next.js forwards them to `API_BACKEND_URL` (default `http://127.0.0.1:8000`); the backend can stay bound to the laptop's loopback interface. The previous `NEXT_PUBLIC_API_BASE_URL` setting is accepted as a server-side fallback.
+
+Start the frontend on the local network:
+
+```bash
+DEV_ALLOWED_ORIGINS=<laptop-LAN-IP> npm run dev -- --hostname 0.0.0.0 --port 3000
+```
+
+Replace `<laptop-LAN-IP>` with the laptop's Wi-Fi address. With both devices on the same Wi-Fi, open `http://<laptop-LAN-IP>:3000` on the phone. Allow the frontend port through the laptop firewall if needed. `DEV_ALLOWED_ORIGINS` permits development assets for that hostname; it accepts comma-separated hostnames without schemes or ports. For deployment, set `API_BACKEND_URL` to the backend URL before building and rebuild/restart after changing it. HTTPS frontends can proxy HTTP backends without browser mixed-content requests.
+
+Firebase sign-in and Google Maps still require their own authorized domains/key restrictions. Browser geolocation requires HTTPS (except on localhost); use manual location entry when testing over a LAN HTTP address.
