@@ -97,3 +97,7 @@ DEV_ALLOWED_ORIGINS=<laptop-LAN-IP> npm run dev -- --hostname 0.0.0.0 --port 300
 Replace `<laptop-LAN-IP>` with the laptop's Wi-Fi address. With both devices on the same Wi-Fi, open `http://<laptop-LAN-IP>:3000` on the phone. Allow the frontend port through the laptop firewall if needed. `DEV_ALLOWED_ORIGINS` permits development assets for that hostname; it accepts comma-separated hostnames without schemes or ports. For deployment, set `API_BACKEND_URL` to the backend URL before building and rebuild/restart after changing it. HTTPS frontends can proxy HTTP backends without browser mixed-content requests.
 
 Firebase sign-in and Google Maps still require their own authorized domains/key restrictions. Browser geolocation requires HTTPS (except on localhost); use manual location entry when testing over a LAN HTTP address.
+
+### Resilient search jobs
+
+New searches return a job ID and poll for results, allowing reconnects after mobile connection failures. Local development runs jobs automatically. **Production requires Cloud Tasks and a shared PostgreSQL database before deploying the frontend.** See [worker setup and rollout](docs/resilient-search-jobs.md).

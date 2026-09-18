@@ -1,12 +1,17 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { post, request, errorMessage } from "@/lib/api";
+import { request, errorMessage } from "@/lib/api";
 import {
   emptySearch,
   type HistoryItem,
   type Restaurant,
   type SearchInput,
 } from "@/lib/types";
+import {
+  searchWithJob,
+  pendingSearch,
+  clearPendingSearch,
+} from "@/lib/searchJobs";
 import { trackSearch } from "@/lib/analytics";
 
 export function useDiscovery(userId: string, onComplete: () => void) {
@@ -38,6 +43,7 @@ export function useDiscovery(userId: string, onComplete: () => void) {
         setError("Enter a dish and a city or ZIP code to begin.");
         return;
       }
+      if (history) clearPendingSearch(userId);
       active.current?.abort();
       const controller = new AbortController();
       active.current = controller;
@@ -65,11 +71,7 @@ export function useDiscovery(userId: string, onComplete: () => void) {
             next.price_tier || undefined,
             next.max_distance_km || undefined,
           );
-          data = await post<Restaurant[]>(
-            "/api/search",
-            { ...next, user_id: userId },
-            controller.signal,
-          );
+          data = await searchWithJob(next, userId, controller.signal);
         }
         if (controller.signal.aborted) return;
         setResults(data);
@@ -100,7 +102,7 @@ export function useDiscovery(userId: string, onComplete: () => void) {
     if (initial.current) return;
     initial.current = true;
     const params = new URLSearchParams(window.location.search);
-    const input = {
+    const input = pendingSearch(userId)?.input || {
       ...emptySearch,
       dish_name: params.get("dish") || "",
       location: params.get("loc") || "",
@@ -114,9 +116,10 @@ export function useDiscovery(userId: string, onComplete: () => void) {
       clearTimeout(timer);
       initial.current = false;
     };
-  }, [execute]);
+  }, [execute, userId]);
 
   const reset = () => {
+    clearPendingSearch(userId);
     active.current?.abort();
     setLoading(false);
     setSubmitted(null);
