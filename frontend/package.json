@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check src/components/discovery src/hooks src/lib/types.ts src/lib/searchJobs.ts src/app/page.tsx src/app/globals.css tests playwright.config.ts"
+    "format:check": "prettier --check src/components/discovery src/components/Logo.tsx src/components/ThemeSelector.tsx src/hooks src/lib/types.ts src/lib/searchJobs.ts src/lib/theme.ts src/app/page.tsx src/app/layout.tsx src/app/globals.css tests playwright.config.ts"
   },
   "dependencies": {
     "@vis.gl/react-google-maps": "^1.10.0",
