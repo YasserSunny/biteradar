@@ -55,7 +55,6 @@ export function Autocomplete({
       onKeyDown={keyDown}
       placeholder={placeholder}
       className={className}
-      required
     />
   );
 }

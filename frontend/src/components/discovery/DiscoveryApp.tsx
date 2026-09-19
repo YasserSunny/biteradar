@@ -107,11 +107,7 @@ function Workspace({ user }: { user: User }) {
     };
     search.setDraft(input);
     setPanel(null);
-    if (input.location.trim()) void search.execute(input);
-    else
-      search.setError(
-        "Choose a city or use your location to find this dish nearby.",
-      );
+    void search.execute(input);
   };
   const select = (id: string) => {
     search.setSelectedId(id);

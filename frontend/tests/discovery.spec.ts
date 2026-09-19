@@ -207,6 +207,82 @@ test("sign-in gate preserves a deep link; preferences apply and reset explicitly
   expect(searches[2].dietary_filters).toEqual([]);
 });
 
+test("a dish without a location automatically searches from the current position", async ({
+  page,
+}) => {
+  const searches = await fixtures(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: {
+              latitude: 33.9526,
+              longitude: -84.5499,
+              accuracy: 10,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition),
+      },
+    });
+  });
+  await signIn(page);
+  await page.getByPlaceholder("Ramen, tacos, biryani…").fill("Tacos");
+  await page.getByRole("button", { name: "Find my dish" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Great spots for Tacos" }),
+  ).toBeVisible();
+  expect(searches).toHaveLength(1);
+  expect(searches[0]).toMatchObject({
+    dish_name: "Tacos",
+    location: "Current location",
+    lat: 33.9526,
+    lng: -84.5499,
+  });
+  await expect(page.getByPlaceholder("City or ZIP code")).toHaveValue(
+    "Current location",
+  );
+});
+
+test("go-to cravings requests location and explains denied permission", async ({
+  page,
+}) => {
+  const searches = await fixtures(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (
+          _success: PositionCallback,
+          error: PositionErrorCallback,
+        ) =>
+          error({
+            code: 1,
+            message: "User denied Geolocation",
+          } as GeolocationPositionError),
+      },
+    });
+  });
+  await signIn(page);
+  const favorites = page
+    .getByRole("heading", { name: "Your go-to cravings" })
+    .locator("..")
+    .getByRole("button");
+  await favorites.filter({ hasText: "Tacos" }).click();
+  await expect(page.locator(".error-banner")).toContainText(
+    "Location permission was denied",
+  );
+  expect(searches).toHaveLength(0);
+  await expect(
+    page.getByRole("button", { name: "Find my dish" }),
+  ).toBeEnabled();
+});
+
 test("history restores settings; location edits drop coordinates; share uses submitted values", async ({
   page,
   context,
