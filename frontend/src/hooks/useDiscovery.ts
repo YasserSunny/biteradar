@@ -14,6 +14,31 @@ import {
 } from "@/lib/searchJobs";
 import { trackSearch } from "@/lib/analytics";
 
+const currentPosition = () =>
+  new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("unsupported"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      timeout: 10000,
+      maximumAge: 300000,
+    });
+  });
+
+const locationError = (error: unknown) => {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === 1
+  )
+    return "Location permission was denied. Allow location access or enter a city or ZIP code.";
+  if (error instanceof Error && error.message === "unsupported")
+    return "Location is unavailable. Enter a city or ZIP code.";
+  return "Could not determine your current location. Enter a city or ZIP code.";
+};
+
 export function useDiscovery(userId: string, onComplete: () => void) {
   const [draft, setDraft] = useState<SearchInput>(emptySearch);
   const [submitted, setSubmitted] = useState<SearchInput | null>(null);
@@ -33,21 +58,41 @@ export function useDiscovery(userId: string, onComplete: () => void) {
 
   const execute = useCallback(
     async (input: SearchInput, history?: HistoryItem) => {
-      const next = {
+      let next = {
         ...input,
         dish_name: input.dish_name.trim(),
         location: input.location.trim(),
       };
       setDraft(next);
-      if (!next.dish_name || !next.location) {
-        setError("Enter a dish and a city or ZIP code to begin.");
+      if (!next.dish_name) {
+        setError("Enter a dish to begin.");
         return;
       }
-      if (history) clearPendingSearch(userId);
       active.current?.abort();
       const controller = new AbortController();
       active.current = controller;
       setLoading(true);
+      setError("");
+      if (!next.location) {
+        try {
+          const position = await currentPosition();
+          if (controller.signal.aborted) return;
+          next = {
+            ...next,
+            location: "Current location",
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          };
+          setDraft(next);
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            setError(locationError(err));
+            setLoading(false);
+          }
+          return;
+        }
+      }
+      if (history) clearPendingSearch(userId);
       setSearchStep(1);
       const timers = [
         setTimeout(() => setSearchStep(2), history ? 400 : 1600),
@@ -55,7 +100,6 @@ export function useDiscovery(userId: string, onComplete: () => void) {
       ];
       const clearSteps = () => timers.forEach(clearTimeout);
       controller.signal.addEventListener("abort", clearSteps, { once: true });
-      setError("");
       try {
         let data: Restaurant[];
         if (history) {

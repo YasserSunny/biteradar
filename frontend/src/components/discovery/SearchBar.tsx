@@ -101,7 +101,6 @@ export function SearchBar({
           ) : (
             <input
               id="search-location"
-              required
               value={value.location}
               placeholder="City or ZIP code"
               onChange={(e) => updateLocation(e.target.value)}
