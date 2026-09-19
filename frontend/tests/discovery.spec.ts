@@ -485,6 +485,62 @@ test("welcome, password reset, account and insights flows", async ({
   ).toBeVisible();
 });
 
+test("theme follows the system and persists an explicit choice", async ({
+  page,
+}, testInfo) => {
+  await fixtures(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+  ).toBe("rgb(21, 23, 25)");
+  await page.screenshot({
+    path: testInfo.outputPath("dark-welcome.png"),
+    fullPage: true,
+    style: "nextjs-portal { display: none; }",
+  });
+  await signIn(page);
+  await search(page);
+  await page.screenshot({
+    path: testInfo.outputPath("dark-results.png"),
+    fullPage: true,
+    style: "nextjs-portal { display: none; }",
+  });
+  await page.getByRole("link", { name: "BiteRadar home" }).click();
+  await page.getByRole("button", { name: "Open account menu" }).click();
+  await page.screenshot({
+    path: testInfo.outputPath("dark-account.png"),
+    fullPage: true,
+    style: "nextjs-portal { display: none; }",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: testInfo.outputPath("dark-account-mobile.png"),
+    fullPage: true,
+    style: "nextjs-portal { display: none; }",
+  });
+  await page.getByRole("radio", { name: "Light" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme-preference",
+    "light",
+  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("biteradar-theme")),
+  ).toBe("light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Open account menu" }).click();
+  await page.getByRole("radio", { name: "System" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(
+    await page.evaluate(() => localStorage.getItem("biteradar-theme")),
+  ).toBeNull();
+});
+
 test("returning home cancels an in-flight search", async ({ page }) => {
   await fixtures(page);
   await signIn(page);

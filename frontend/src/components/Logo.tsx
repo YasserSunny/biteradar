@@ -110,8 +110,8 @@ export function Logo({
     size === "sm"
       ? "text-2xl"
       : size === "md"
-      ? "text-3xl"
-      : "text-4xl sm:text-5xl";
+        ? "text-3xl"
+        : "text-4xl sm:text-5xl";
 
   return (
     <div
@@ -121,14 +121,12 @@ export function Logo({
           : "flex-row gap-3"
       }`}
     >
-      <div
-        className="relative shrink-0 rounded-2xl p-1.5 bg-gradient-to-br from-orange-500/10 via-amber-500/10 to-red-500/10 border border-orange-200/80 hover:border-red-300 shadow-xs transition-all duration-200"
-      >
+      <div className="relative shrink-0 rounded-2xl p-1.5 bg-gradient-to-br from-orange-500/10 via-amber-500/10 to-red-500/10 border border-orange-200/80 hover:border-red-300 shadow-xs transition-all duration-200">
         <BiteRadarIcon size={iconPixelSize} />
       </div>
       <div className="flex flex-col select-none">
         <span
-          className={`font-black tracking-tight ${textSize} text-gray-900 leading-none`}
+          className={`logo-wordmark font-black tracking-tight ${textSize} leading-none`}
         >
           Bite<span className="text-orange-600">Radar</span>
         </span>

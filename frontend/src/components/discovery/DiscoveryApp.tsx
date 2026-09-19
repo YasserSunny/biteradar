@@ -10,6 +10,7 @@ import type { Dish, HistoryItem, Profile } from "@/lib/types";
 import { trackTrendingCraveClick } from "@/lib/analytics";
 import { useDiscovery } from "@/hooks/useDiscovery";
 import { Logo } from "../Logo";
+import { ThemeSelector } from "../ThemeSelector";
 import { ProfileModal } from "../ProfileModal";
 import InsightsModal from "../InsightsModal";
 import { Icon } from "./Icon";
@@ -497,6 +498,7 @@ function Workspace({ user }: { user: User }) {
             <h3>{profile?.name || user.displayName || "Food lover"}</h3>
             <p className="muted">{user.email}</p>
           </div>
+          <ThemeSelector />
           <div className="account-links">
             <button
               onClick={() => {
