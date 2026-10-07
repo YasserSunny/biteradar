@@ -250,6 +250,7 @@ class TestPhase5CoreEnhancements(unittest.TestCase):
             lng=-97.75
         )
         self.db.add_all([rec1, rec2])
+        self.db.add(models.SearchHistory(user_id="test-user", query_id=query.id))
         self.db.commit()
 
         # Query about price / budget
@@ -326,4 +327,3 @@ class TestPhase5CoreEnhancements(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

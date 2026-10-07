@@ -6,7 +6,6 @@ import { Panel } from "./discovery/Panel";
 import { Icon } from "./discovery/Icon";
 interface Props {
   isOpen: boolean;
-  userId: string;
   defaultName?: string;
   initialCuisines?: string[];
   initialDishes?: string[];
@@ -16,7 +15,6 @@ interface Props {
 }
 export function ProfileModal({
   isOpen,
-  userId,
   defaultName = "",
   initialCuisines = [],
   initialDishes = [],
@@ -52,7 +50,6 @@ export function ProfileModal({
           setError("");
           try {
             const profile = await post<Profile>("/api/profile", {
-              user_id: userId,
               name: name.trim(),
               preferred_cuisines: cuisines,
               favorite_dishes: dishes,

@@ -12,7 +12,7 @@ class SearchRequest(BaseModel):
     max_distance_km: Optional[float] = None
 
 class ProfileRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     name: str
     preferred_cuisines: List[str] = []
     favorite_dishes: List[str] = []
@@ -104,5 +104,4 @@ class AnalyticsSummaryResponse(BaseModel):
     negative_feedback_votes: int
     top_dishes: List[DishItem]
     top_gems: List[TopRestaurantGem]
-
 

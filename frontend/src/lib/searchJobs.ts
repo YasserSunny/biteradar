@@ -116,7 +116,7 @@ export async function searchWithJob(
               "Content-Type": "application/json",
               "Idempotency-Key": pending.id,
             },
-            body: JSON.stringify({ ...input, user_id: userId }),
+            body: JSON.stringify(input),
           });
       if (
         !job ||

@@ -62,6 +62,23 @@ def test_idempotency_conflict_and_validation(setup):
     assert submit(client, dish_name=' ')[0].status_code == 400
 
 
+def test_job_polling_is_bound_to_authenticated_owner(setup):
+    client, _, _ = setup
+    key = str(uuid4())
+    created = client.post(
+        '/api/search-jobs',
+        headers={'Idempotency-Key': key, 'X-Test-User': 'alice'},
+        json={'dish_name': 'Mango smoothie', 'location': 'Roswell'},
+    )
+    assert created.status_code == 202
+    assert client.get(
+        f'/api/search-jobs/{key}', headers={'X-Test-User': 'alice'}
+    ).status_code == 200
+    assert client.get(
+        f'/api/search-jobs/{key}', headers={'X-Test-User': 'bob'}
+    ).status_code == 403
+
+
 def test_result_survives_new_sessions_and_duplicate_worker_delivery(setup):
     client, _, _ = setup
     _, key = submit(client)

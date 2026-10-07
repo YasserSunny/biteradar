@@ -17,6 +17,7 @@ from database import SessionLocal, get_db
 from logger import get_logger
 from routers.search import search_dish
 from schemas import SearchRequest
+from auth import require_user, verified_user_id
 
 router = APIRouter(prefix="/api", tags=["search jobs"])
 logger = get_logger("routers.search_jobs")
@@ -90,7 +91,10 @@ def job_payload(job):
 @router.post("/search-jobs", status_code=202)
 def create_job(request: SearchRequest, response: Response,
                idempotency_key: str = Header(alias="Idempotency-Key"),
-               db: Session = Depends(get_db)):
+               db: Session = Depends(get_db),
+               authenticated_uid: str = Depends(require_user)):
+    user_id = verified_user_id(authenticated_uid, request.user_id)
+    request = request.model_copy(update={"user_id": user_id})
     try:
         job_id = str(UUID(idempotency_key))
     except ValueError:
@@ -132,10 +136,21 @@ def create_job(request: SearchRequest, response: Response,
 
 
 @router.get("/search-jobs/{job_id}")
-def get_job(job_id: str, response: Response, db: Session = Depends(get_db)):
+def get_job(
+    job_id: str,
+    response: Response,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user),
+):
     job = db.get(models.SearchJob, job_id)
     if not job or expired(job):
         raise HTTPException(404, "This search has expired. Please search again.")
+    try:
+        owner_id = json.loads(job.request_json).get("user_id")
+    except (TypeError, json.JSONDecodeError):
+        owner_id = None
+    if owner_id != user_id:
+        raise HTTPException(403, "You cannot access this search job.")
     response.headers["Cache-Control"] = "no-store"
     return job_payload(job)
 
@@ -160,7 +175,9 @@ def run_job(job_id):
         db.refresh(job)
         request = SearchRequest.model_validate_json(job.request_json)
         try:
-            results = search_dish(request, db)
+            if not request.user_id:
+                raise HTTPException(403, "Search job has no verified owner.")
+            results = search_dish(request, db, request.user_id)
             update = {"status": "completed", "result_json": json.dumps([
                 item.model_dump() if hasattr(item, "model_dump") else item for item in results
             ]), "error": None}

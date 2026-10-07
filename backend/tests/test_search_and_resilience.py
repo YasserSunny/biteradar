@@ -74,6 +74,7 @@ class TestSearchAndResilience(unittest.TestCase):
             lng=2.363
         )
         self.db.add(rec)
+        self.db.add(models.SearchHistory(user_id="test-user", query_id=query.id))
         self.db.commit()
 
         # 2. Search for the exact query (case-insensitive)
@@ -215,6 +216,7 @@ class TestSearchAndResilience(unittest.TestCase):
             lng=12.5
         )
         self.db.add(rec)
+        self.db.add(models.SearchHistory(user_id="test-user", query_id=query.id))
         self.db.commit()
         self.db.refresh(rec)
 
@@ -245,6 +247,7 @@ class TestSearchAndResilience(unittest.TestCase):
             lng=-96.8
         )
         self.db.add(rec)
+        self.db.add(models.SearchHistory(user_id="test-user", query_id=query.id))
         self.db.commit()
 
         # Success case
