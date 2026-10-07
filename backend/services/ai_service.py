@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from google.genai import types
 from config import ai_client
 from logger import get_logger
+from observability import provider_call
 
 logger = get_logger("ai_service")
 
@@ -131,13 +132,14 @@ Rank the array in order of best recommendation first.
 """
         logger.info(f"Sending prompt to Gemini 3.6 Flash for dish: '{dish_name}' with {len(restaurant_data)} candidates")
 
-        response = ai_client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
+        with provider_call("gemini", "restaurant_ranking"):
+            response = ai_client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                )
             )
-        )
 
         raw_text = response.text or ""
         
@@ -155,7 +157,7 @@ Rank the array in order of best recommendation first.
                     logger.info("Parsed Gemini output using regex fallback")
                     return parsed
 
-        logger.warning(f"Gemini response could not be parsed as a JSON list. Raw text: {raw_text[:200]}")
+        logger.warning("Gemini response could not be parsed as a JSON list")
         return _generate_fallback_ranking(dish_name, restaurant_data, dietary_filters, price_tier)
 
     except Exception as e:
@@ -266,13 +268,14 @@ Instructions:
         prompt = f"{system_context}\n{history_formatted}\nUser Inquiry: {user_message}\n"
         logger.info(f"Submitting chat request to Gemini 3.6 Flash for dish: '{dish_name}'")
 
-        res = ai_client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
+        with provider_call("gemini", "dish_chat"):
+            res = ai_client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                )
             )
-        )
         raw_text = res.text or ""
         try:
             parsed = json.loads(raw_text)
@@ -293,5 +296,4 @@ Instructions:
     except Exception as e:
         logger.error(f"Error in answer_dish_chat: {e}. Executing graceful fallback.", exc_info=True)
         return _generate_chat_fallback(dish_name, location, recommendations, user_message)
-
 

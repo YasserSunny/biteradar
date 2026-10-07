@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional
 import requests
 from config import DOCUMENU_API_KEY
 from logger import get_logger
+from observability import timed_http_call
 
 logger = get_logger("menu_service")
 
@@ -54,7 +55,7 @@ def fetch_dish_pricing_and_menu(
             "search": restaurant_name
         }
 
-        resp = requests.get(url, headers=headers, params=params, timeout=3.5)
+        resp = timed_http_call("documenu", "menu_search", requests.get, url, headers=headers, params=params, timeout=3.5)
         if resp.status_code != 200:
             logger.debug(f"Documenu returned {resp.status_code} for '{restaurant_name}'")
             return result

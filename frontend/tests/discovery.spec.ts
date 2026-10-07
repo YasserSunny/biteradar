@@ -82,6 +82,7 @@ async function fixtures(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS")
       return route.fulfill({ status: 204 });
+    expect(route.request().headers()["authorization"]).toBe(`Bearer ${token}`);
     if (path === "/api/search-jobs") {
       searches.push(route.request().postDataJSON());
       return route.fulfill({ json: completedJob(restaurants) });
