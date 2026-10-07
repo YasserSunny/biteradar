@@ -35,12 +35,18 @@ class TestSearchAndResilience(unittest.TestCase):
         cls.client = TestClient(app)
 
     def setUp(self):
+        # Search fails closed when Google Maps is not configured. These tests
+        # mock provider calls directly, so supply that prerequisite explicitly
+        # instead of depending on a developer's local .env file.
+        self.gmaps_patcher = patch("routers.search.gmaps", new=object())
+        self.gmaps_patcher.start()
         models.Base.metadata.create_all(bind=test_engine)
         self.db = TestingSessionLocal()
 
     def tearDown(self):
         self.db.close()
         models.Base.metadata.drop_all(bind=test_engine)
+        self.gmaps_patcher.stop()
 
     def test_search_validation(self):
         """Test that missing dish or location triggers 400 Bad Request."""
