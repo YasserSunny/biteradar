@@ -2,6 +2,7 @@ import unittest
 import json
 from routers.search import search_context_and_key
 from schemas import SearchRequest
+from services.ai_service import _sanitize_rankings
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -70,6 +71,7 @@ class TestSearchAndResilience(unittest.TestCase):
             website="http://dupainetdesidees.com",
             reason="Famous for exquisite buttery croissants.",
             helpful_quote="Best escargot pastry and croissant in Paris!",
+            evidence_summary="Guests consistently praise the bakery's laminated pastries.",
             lat=48.871,
             lng=2.363
         )
@@ -86,6 +88,11 @@ class TestSearchAndResilience(unittest.TestCase):
         self.assertEqual(data[0]["name"], "Du Pain et des Idees")
         self.assertEqual(data[0]["rating"], 4.9)
         self.assertEqual(data[0]["website"], "http://dupainetdesidees.com")
+        self.assertEqual(
+            data[0]["evidence_summary"],
+            "Guests consistently praise the bakery's laminated pastries.",
+        )
+        self.assertNotIn("helpful_quote", data[0])
 
         # 3. Verify search history was recorded
         history = self.db.query(models.SearchHistory).filter(models.SearchHistory.user_id == "paris_traveler").all()
@@ -135,7 +142,7 @@ class TestSearchAndResilience(unittest.TestCase):
             {
                 "index": 0,
                 "reason": "Acclaimed for their savory carnitas and brisket tacos.",
-                "helpful_quote": "The brisket taco is out of this world!"
+                "evidence_summary": "Diners repeatedly praise the brisket and carnitas fillings."
             }
         ]
 
@@ -146,7 +153,10 @@ class TestSearchAndResilience(unittest.TestCase):
         self.assertEqual(data[0]["name"], "Taqueria del Sol")
         self.assertEqual(data[0]["website"], "https://www.taqueriadelsol.com")
         self.assertEqual(data[0]["price_level"], "$")
-        self.assertEqual(data[0]["helpful_quote"], "The brisket taco is out of this world!")
+        self.assertEqual(
+            data[0]["evidence_summary"],
+            "Diners repeatedly praise the brisket and carnitas fillings.",
+        )
 
     @patch("routers.search.geocode_location")
     @patch("routers.search.search_candidate_restaurants")
@@ -310,7 +320,7 @@ class TestSearchAndResilience(unittest.TestCase):
             {
                 "index": 0,
                 "reason": "Iconic cart famous for legendary platters and white sauce.",
-                "helpful_quote": "Get the chicken and gyro combo platter!"
+                "evidence_summary": "Diners frequently recommend the chicken and gyro platter."
             }
         ]
 
@@ -323,6 +333,10 @@ class TestSearchAndResilience(unittest.TestCase):
         self.assertEqual(item["dish_price"], "$12.99")
         self.assertIn("Halal", item["dietary_tags"])
         self.assertIn("Outdoor Seating", item["amenities"])
+        self.assertEqual(
+            item["evidence_summary"],
+            "Diners frequently recommend the chicken and gyro platter.",
+        )
 
         # Check DB persistence
         db_rec = self.db.query(models.Recommendation).filter(models.Recommendation.place_id == "nyc_halal_1").first()
@@ -338,6 +352,21 @@ class TestSearchAndResilience(unittest.TestCase):
         ).first()
         self.assertIsNotNone(fsq_review)
         self.assertIn("red hot sauce", fsq_review.text)
+
+    def test_rank_sanitizer_drops_legacy_and_verbatim_provider_text(self):
+        provider_sentence = "The broth is the reason we keep coming back."
+        rankings = [{
+            "index": 0,
+            "reason": "Strong overall dish relevance.",
+            "helpful_quote": provider_sentence,
+            "evidence_summary": provider_sentence,
+        }]
+        sanitized = _sanitize_rankings(
+            rankings,
+            [{"reviews": [provider_sentence], "foursquare_tips": []}],
+        )
+        self.assertNotIn("helpful_quote", sanitized[0])
+        self.assertEqual(sanitized[0]["evidence_summary"], "")
 
     @patch("routers.search.geocode_location")
     @patch("routers.search.search_candidate_restaurants")

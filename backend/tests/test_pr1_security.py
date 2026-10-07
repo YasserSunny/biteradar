@@ -81,6 +81,29 @@ def test_valid_token_claim_allows_protected_request(security_client):
         app.dependency_overrides[require_user] = auth_override
 
 
+def test_firebase_service_failure_returns_503_without_leaking_details(security_client):
+    from google.auth.exceptions import DefaultCredentialsError
+
+    client, _ = security_client
+    auth_override = app.dependency_overrides.pop(require_user)
+    try:
+        with patch(
+            "auth.verify_firebase_token",
+            side_effect=DefaultCredentialsError("sensitive credential path"),
+        ):
+            response = client.get(
+                "/api/dishes/trending",
+                headers={"Authorization": "Bearer syntactically-valid-token"},
+            )
+        assert response.status_code == 503
+        assert response.json()["detail"] == (
+            "Authentication service is temporarily unavailable."
+        )
+        assert "sensitive" not in response.text
+    finally:
+        app.dependency_overrides[require_user] = auth_override
+
+
 def test_conflicting_uid_and_cross_user_query_access(security_client):
     client, sessions = security_client
     conflict = client.post(
@@ -132,9 +155,15 @@ def test_provider_review_cleanup_dry_run_execute_and_idempotency(tmp_path: Path)
             models.Review(place_id="p1", source="yelp", text="yelp text"),
             models.Review(place_id="p1", source="foursquare", text="keep me"),
         ])
+        db.add(models.Recommendation(
+            place_id="p1", name="Place", rating=4.5, total_reviews=10,
+            reason="reason", helpful_quote="legacy provider sentence",
+            lat=1, lng=2,
+        ))
         db.commit()
         dry_run = purge_reviews(db)
         assert dry_run["total_rows"] == 2
+        assert dry_run["legacy_quote_rows"] == 1
         assert db.query(models.Review).count() == 3
         assert "text" not in str(dry_run)
 
@@ -147,7 +176,9 @@ def test_provider_review_cleanup_dry_run_execute_and_idempotency(tmp_path: Path)
             now=datetime(2026, 10, 6, tzinfo=timezone.utc),
         )
         assert result["deleted_rows"] == 2
+        assert result["cleared_legacy_quote_rows"] == 1
         assert db.query(models.Review).one().source == "foursquare"
+        assert db.query(models.Recommendation).one().helpful_quote is None
         assert "google text" not in audit.read_text()
         purge_reviews(db, audit_file=audit)
         assert purge_reviews(db, execute=True, audit_file=audit)["deleted_rows"] == 0

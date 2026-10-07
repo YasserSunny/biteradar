@@ -53,7 +53,7 @@ def dish_chat(
             "amenities": _parse_json_list(r.amenities),
             "summary": r.summary,
             "reason": r.reason,
-            "helpful_quote": r.helpful_quote
+            "evidence_summary": r.evidence_summary
         })
 
     logger.info(f"Processing chat for query_id={request.query_id} ('{query.dish_name}' in '{query.location}') with {len(recs_data)} recommendations")

@@ -3,6 +3,7 @@ import base64
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -18,6 +19,7 @@ from logger import get_logger
 from routers.search import search_dish
 from schemas import SearchRequest
 from auth import require_user, verified_user_id
+from observability import get_request_id
 
 router = APIRouter(prefix="/api", tags=["search jobs"])
 logger = get_logger("routers.search_jobs")
@@ -55,7 +57,8 @@ def task_settings():
 
 def dispatch(job_id):
     if executor_mode() == "local":
-        local_workers.submit(run_job, job_id)
+        context = copy_context()
+        local_workers.submit(context.run, run_job, job_id)
         return
     import google.auth
     from google.auth.transport.requests import AuthorizedSession
@@ -68,7 +71,10 @@ def dispatch(job_id):
         "httpRequest": {
             "httpMethod": "POST",
             "url": worker_url + "/api/internal/search-jobs/run",
-            "headers": {"Content-Type": "application/json"},
+            "headers": {
+                "Content-Type": "application/json",
+                "X-Request-ID": get_request_id(),
+            },
             "body": base64.b64encode(json.dumps({"job_id": job_id}).encode()).decode(),
             "oidcToken": {"serviceAccountEmail": account, "audience": worker_url},
         },

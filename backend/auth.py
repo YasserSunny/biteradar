@@ -6,6 +6,22 @@ from typing import Optional
 import firebase_admin
 from fastapi import Depends, Header, HTTPException
 from firebase_admin import auth, credentials
+from google.auth import exceptions as google_auth_exceptions
+
+from logger import get_logger
+
+
+logger = get_logger("auth")
+
+AUTH_SERVICE_ERRORS = (
+    auth.CertificateFetchError,
+    auth.ConfigurationNotFoundError,
+    auth.InsufficientPermissionError,
+    auth.UnexpectedResponseError,
+    google_auth_exceptions.DefaultCredentialsError,
+    google_auth_exceptions.RefreshError,
+    google_auth_exceptions.TransportError,
+)
 
 
 @lru_cache(maxsize=1)
@@ -36,6 +52,15 @@ def optional_user(authorization: Optional[str] = Header(default=None)) -> Option
         if not isinstance(uid, str) or not uid:
             raise ValueError("Token has no Firebase UID")
         return uid
+    except AUTH_SERVICE_ERRORS as error:
+        logger.error(
+            "Firebase authentication service unavailable (%s)",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is temporarily unavailable.",
+        ) from error
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid authentication credentials.")
 

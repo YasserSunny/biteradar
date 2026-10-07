@@ -108,8 +108,9 @@ that header to correlate a request.
 ### Provider review retention cleanup
 
 Google and Yelp review text is used transiently during a live ranking request
-and is not stored. After deploying this version, inspect the cleanup without
-changing data:
+and is not stored. Recommendation explanations may include a generated summary
+of recurring review signals, but never an exact provider quote. After deploying
+this version, inspect the cleanup without changing data:
 
 ```bash
 cd backend
@@ -126,9 +127,11 @@ uv run python -m maintenance.purge_provider_reviews \
   --execute --audit-file ./provider-review-purge-audit.json
 ```
 
-The audit contains only source, place ID, counts, and deletion time. Keep it in
-your secure operations records and do not commit it. Foursquare rows are not
-changed pending a separate retention-rights review. Provider telemetry emits
+The audit contains only source, place ID, counts, the number of legacy quote
+fields to clear, and deletion time. Execution deletes Google/Yelp review rows
+and clears legacy recommendation quotes. Keep the audit in your secure
+operations records and do not commit it. Foursquare rows are not changed
+pending a separate retention-rights review. Provider telemetry emits
 `provider`, `operation`, `duration_ms`, `status`, `category`, `timeout`,
 `quota_response`, and `request_id`; these are the fields to use for quota and
 cost alerts in the dashboard PR. If the old Yelp key prefix appeared in any

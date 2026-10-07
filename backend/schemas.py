@@ -42,7 +42,7 @@ class RestaurantResult(BaseModel):
     open_now: Optional[bool] = None
     website: Optional[str] = None
     reason: str
-    helpful_quote: Optional[str] = None
+    evidence_summary: Optional[str] = None
     lat: float
     lng: float
     helpful: Optional[bool] = None
@@ -104,4 +104,3 @@ class AnalyticsSummaryResponse(BaseModel):
     negative_feedback_votes: int
     top_dishes: List[DishItem]
     top_gems: List[TopRestaurantGem]
-

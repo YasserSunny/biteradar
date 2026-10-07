@@ -48,7 +48,7 @@ def run_database_migrations(target_engine=None):
         # 1. recommendations table migrations
         if "recommendations" in existing_tables:
             rec_cols = {col["name"] for col in inspector.get_columns("recommendations")}
-            for col_name in ["dietary_tags", "amenities", "dish_price", "photo_url", "delivery_url", "reservation_url"]:
+            for col_name in ["dietary_tags", "amenities", "dish_price", "photo_url", "delivery_url", "reservation_url", "evidence_summary"]:
                 if col_name not in rec_cols:
                     try:
                         with eng.begin() as conn:

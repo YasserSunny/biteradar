@@ -45,11 +45,16 @@ def purge_reviews(
 ) -> dict:
     timestamp = (now or datetime.now(timezone.utc)).isoformat()
     rows = audit_rows(db)
+    legacy_quote_rows = db.query(models.Recommendation).filter(
+        models.Recommendation.helpful_quote.isnot(None),
+        models.Recommendation.helpful_quote != "",
+    ).count()
     report = {
         "sources": list(PURGE_SOURCES),
         "deletion_timestamp": timestamp if execute else None,
         "dry_run": not execute,
         "total_rows": sum(row["row_count"] for row in rows),
+        "legacy_quote_rows": legacy_quote_rows,
         "rows": rows,
     }
     if not execute:
@@ -66,6 +71,7 @@ def purge_reviews(
         prior_audit.get("dry_run") is not True
         or prior_audit.get("sources") != list(PURGE_SOURCES)
         or prior_audit.get("total_rows") != report["total_rows"]
+        or prior_audit.get("legacy_quote_rows") != report["legacy_quote_rows"]
         or prior_audit.get("rows") != report["rows"]
     ):
         raise ValueError("The database no longer matches the confirmed dry-run audit.")
@@ -75,10 +81,23 @@ def purge_reviews(
         deleted = db.query(models.Review).filter(
             models.Review.source.in_(PURGE_SOURCES)
         ).delete(synchronize_session=False)
+        cleared_quotes = db.query(models.Recommendation).filter(
+            models.Recommendation.helpful_quote.isnot(None),
+            models.Recommendation.helpful_quote != "",
+        ).update({models.Recommendation.helpful_quote: None}, synchronize_session=False)
         remaining = db.query(models.Review).filter(
             models.Review.source.in_(PURGE_SOURCES)
         ).count()
-        if deleted != report["total_rows"] or remaining:
+        remaining_quotes = db.query(models.Recommendation).filter(
+            models.Recommendation.helpful_quote.isnot(None),
+            models.Recommendation.helpful_quote != "",
+        ).count()
+        if (
+            deleted != report["total_rows"]
+            or cleared_quotes != report["legacy_quote_rows"]
+            or remaining
+            or remaining_quotes
+        ):
             raise RuntimeError("Provider review purge verification failed.")
         db.commit()
     except Exception:
@@ -87,7 +106,9 @@ def purge_reviews(
         audit_file.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         raise
     report["deleted_rows"] = deleted
+    report["cleared_legacy_quote_rows"] = cleared_quotes
     report["remaining_rows"] = remaining
+    report["remaining_legacy_quote_rows"] = remaining_quotes
     report["verified_remaining_rows"] = db.query(models.Review).filter(
         models.Review.source.in_(PURGE_SOURCES)
     ).count()

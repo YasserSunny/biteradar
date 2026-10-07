@@ -9,6 +9,39 @@ from observability import provider_call
 
 logger = get_logger("ai_service")
 
+
+def _sanitize_rankings(
+    rankings: List[Dict[str, Any]], restaurant_data: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Drop legacy quotes and reject summaries copied verbatim from provider text."""
+    sanitized = []
+    for raw_item in rankings:
+        item = dict(raw_item)
+        item.pop("helpful_quote", None)
+        summary = item.get("evidence_summary")
+        if not isinstance(summary, str):
+            summary = ""
+        summary = " ".join(summary.split())[:240]
+        idx = item.get("index")
+        snippets = []
+        if isinstance(idx, int) and 0 <= idx < len(restaurant_data):
+            candidate = restaurant_data[idx]
+            snippets = (candidate.get("reviews") or []) + (
+                candidate.get("foursquare_tips") or []
+            )
+        normalized_summary = re.sub(r"\W+", " ", summary.lower()).strip()
+        for snippet in snippets:
+            normalized_snippet = re.sub(r"\W+", " ", str(snippet).lower()).strip()
+            if (
+                normalized_summary
+                and normalized_summary in normalized_snippet
+            ):
+                summary = ""
+                break
+        item["evidence_summary"] = summary
+        sanitized.append(item)
+    return sanitized
+
 def _generate_fallback_ranking(
     dish_name: str,
     restaurant_data: List[Dict[str, Any]],
@@ -18,7 +51,7 @@ def _generate_fallback_ranking(
     """
     Fallback ranking heuristic when Gemini is unreachable, quota-exhausted, or returns invalid JSON.
     Ranks by popularity score = rating * log10(total_reviews + 10), with boosts for matching dietary filters & price tiers.
-    Extracts a quote mentioning the dish if found in reviews.
+    Produces a derived evidence summary without retaining provider review text.
     """
     logger.info(f"Applying intelligent fallback ranking for {len(restaurant_data)} candidate(s) (dietary={dietary_filters}, price={price_tier})")
     
@@ -45,26 +78,30 @@ def _generate_fallback_ranking(
         if price_tier and r.get("price_level") == price_tier:
             score += 1.5
 
-        # Look for any customer review or tip that mentions the dish
-        matching_quote = ""
+        # Detect dish-specific evidence without copying provider text into output.
+        has_dish_evidence = False
         dish_lower = dish_name.lower().strip()
         for snippet in all_candidate_snippets:
             if dish_lower in snippet.lower():
-                matching_quote = snippet[:160].strip()
+                has_dish_evidence = True
                 break
 
         if dietary_matches:
             reason = f"Verified {', '.join(dietary_matches)} options available. Highly rated ({rating}★, {reviews_count:,} reviews) with strong community acclaim for {dish_name}."
-        elif matching_quote:
+        elif has_dish_evidence:
             reason = f"Customer reviews specifically highlight this spot for {dish_name} ({rating}★ across {reviews_count:,} reviews)."
         else:
             reason = f"Highly rated local favorite ({rating}★ across {reviews_count:,} reviews) with consistent quality."
 
+        evidence_summary = (
+            f"Recent review signals mention {dish_name} positively."
+            if has_dish_evidence else ""
+        )
         scored_candidates.append({
             "index": idx,
             "score": score,
             "reason": reason,
-            "helpful_quote": matching_quote
+            "evidence_summary": evidence_summary,
         })
 
     # Sort descending by calculated score
@@ -74,7 +111,7 @@ def _generate_fallback_ranking(
         {
             "index": c["index"],
             "reason": c["reason"],
-            "helpful_quote": c["helpful_quote"]
+            "evidence_summary": c["evidence_summary"]
         }
         for c in scored_candidates
     ]
@@ -125,8 +162,10 @@ When ranking the restaurants, consider:
 Return your response as a JSON array of objects.
 Each object must have:
 - "index": the integer index of the restaurant from the list above.
-- "reason": A short 1-2 sentence convincing reason why this restaurant is good for this specific dish and how it matches user criteria.
-- "helpful_quote": Exact quote snippet extracted directly from the customer reviews or Foursquare diner tips mentioning the dish. Leave empty if none found.
+- "reason": A short 1-2 sentence explanation of why this restaurant is good for this specific dish and how it matches user criteria.
+- "evidence_summary": A short synthesis of recurring, dish-specific themes supported by the supplied reviews or tips. Never quote, closely paraphrase, or identify an individual reviewer. Leave empty when the evidence is insufficient or appears in only one isolated comment.
+
+Do not copy or closely paraphrase a provider review or tip in any output field.
 
 Rank the array in order of best recommendation first.
 """
@@ -148,14 +187,14 @@ Rank the array in order of best recommendation first.
             parsed = json.loads(raw_text)
             if isinstance(parsed, list) and len(parsed) > 0:
                 logger.info(f"Gemini successfully ranked {len(parsed)} restaurant(s)")
-                return parsed
+                return _sanitize_rankings(parsed, restaurant_data)
         except json.JSONDecodeError:
             match = re.search(r'\[.*\]', raw_text, re.DOTALL)
             if match:
                 parsed = json.loads(match.group(0))
                 if isinstance(parsed, list) and len(parsed) > 0:
                     logger.info("Parsed Gemini output using regex fallback")
-                    return parsed
+                    return _sanitize_rankings(parsed, restaurant_data)
 
         logger.warning("Gemini response could not be parsed as a JSON list")
         return _generate_fallback_ranking(dish_name, restaurant_data, dietary_filters, price_tier)
@@ -236,15 +275,15 @@ def answer_dish_chat(
             dish_price = f"Dish Price: {r.get('dish_price')}" if r.get('dish_price') else ""
             diet = f"Dietary: {', '.join(r.get('dietary_tags', []))}" if r.get('dietary_tags') else ""
             amen = f"Amenities: {', '.join(r.get('amenities', []))}" if r.get('amenities') else ""
-            quote = f"Customer Quote: \"{r.get('helpful_quote')}\"" if r.get('helpful_quote') else ""
+            evidence = f"Review Evidence Summary: {r.get('evidence_summary')}" if r.get('evidence_summary') else ""
             meta = " | ".join(filter(None, [price_info, dish_price, diet, amen]))
             system_context += f"- **{r.get('name')}** ({r.get('rating')}★, {r.get('total_reviews', 0)} reviews)\n"
             if meta:
                 system_context += f"  Attributes: {meta}\n"
             if r.get('reason'):
                 system_context += f"  Why it's great: {r.get('reason')}\n"
-            if quote:
-                system_context += f"  {quote}\n"
+            if evidence:
+                system_context += f"  {evidence}\n"
 
         system_context += """
 Instructions:
@@ -296,4 +335,3 @@ Instructions:
     except Exception as e:
         logger.error(f"Error in answer_dish_chat: {e}. Executing graceful fallback.", exc_info=True)
         return _generate_chat_fallback(dish_name, location, recommendations, user_message)
-
