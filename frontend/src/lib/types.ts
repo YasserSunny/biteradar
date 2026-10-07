@@ -29,7 +29,7 @@ export interface Restaurant {
   summary?: string | null;
   open_now?: boolean | null;
   website?: string | null;
-  helpful_quote?: string | null;
+  evidence_summary?: string | null;
   helpful?: boolean | null;
   photo_url?: string | null;
   delivery_url?: string | null;

@@ -58,7 +58,7 @@ def test_legacy_history_survives_but_is_not_reused(context_client):
     with patch('routers.search.gmaps', None):
         assert client.post('/api/search', json=payload).status_code == 503
     assert client.get('/api/history/diner').json()[0]['search_context'] is None
-    assert client.get(f'/api/queries/{query.id}/recommendations').json()[0]['name'] == 'Noodle House'
+    assert client.get(f'/api/queries/{query.id}/recommendations', headers={'X-Test-User': 'diner'}).json()[0]['name'] == 'Noodle House'
 
 def test_cache_history_and_response_fields(context_client):
     client, session = context_client

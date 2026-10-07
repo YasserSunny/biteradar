@@ -26,6 +26,7 @@ test.beforeAll(async () => {
       JSON.stringify({
         path: req.url,
         method: req.method,
+        authorization: req.headers.authorization || null,
         body: chunks.length
           ? JSON.parse(Buffer.concat(chunks).toString())
           : null,
@@ -51,7 +52,10 @@ test("mobile browser reaches the backend through the frontend origin", async ({
   const result = await page.evaluate(async (body) => {
     const response = await fetch("/api/search?source=mobile", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer proxy-test-token",
+      },
       body: JSON.stringify(body),
     });
     return { url: response.url, data: await response.json() };
@@ -60,6 +64,7 @@ test("mobile browser reaches the backend through the frontend origin", async ({
   expect(result.data).toEqual({
     path: "/api/search?source=mobile",
     method: "POST",
+    authorization: "Bearer proxy-test-token",
     body: payload,
   });
 });

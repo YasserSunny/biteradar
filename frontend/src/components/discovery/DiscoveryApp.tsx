@@ -564,7 +564,6 @@ function Workspace({ user }: { user: User }) {
       {panel === "profile" && (
         <ProfileModal
           isOpen
-          userId={user.uid}
           defaultName={profile?.name || user.displayName || ""}
           initialCuisines={profile?.preferred_cuisines || []}
           initialDishes={profile?.favorite_dishes || []}

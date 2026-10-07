@@ -3,7 +3,7 @@ name = "biteradar-backend"
 version = "1.0.0"
 description = "BiteRadar AI-powered restaurant & dish recommendation backend"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -15,6 +15,7 @@ dependencies = [
     "google-genai>=1.0.0",
     "requests>=2.32.0",
     "google-auth>=2.0.0",
+    "firebase-admin>=6.6.0",
 ]
 
 [dependency-groups]

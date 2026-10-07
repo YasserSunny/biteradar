@@ -1,6 +1,7 @@
 from typing import Dict, Any, List, Optional
 import requests
 from logger import get_logger
+from observability import timed_http_call
 
 logger = get_logger("osm_service")
 
@@ -36,7 +37,7 @@ out tags;"""
             "User-Agent": "BiteRadar/1.0 (https://biteradar.fyi; contact@biteradar.fyi)"
         }
 
-        resp = requests.post(
+        resp = timed_http_call("openstreetmap", "overpass_search", requests.post,
             OVERPASS_URL, 
             data={"data": query}, 
             headers=headers, 

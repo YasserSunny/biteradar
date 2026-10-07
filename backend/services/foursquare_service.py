@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 import requests
 from config import FOURSQUARE_API_KEY
 from logger import get_logger
+from observability import timed_http_call
 
 logger = get_logger("foursquare_service")
 
@@ -48,7 +49,7 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
 
         # Use stream=True so that if the CDN drops the connection on 401/403,
         # we read the status code cleanly without crashing with ChunkedEncodingError/IncompleteRead
-        resp = requests.get(search_url, headers=headers, params=search_params, stream=True, timeout=3.0)
+        resp = timed_http_call("foursquare", "place_search", requests.get, search_url, headers=headers, params=search_params, stream=True, timeout=3.0)
         if resp.status_code in (401, 403):
             _foursquare_auth_invalid = True
             logger.warning(
@@ -83,7 +84,7 @@ def fetch_foursquare_tips(name: str, lat: float, lng: float) -> Dict[str, Any]:
         tips_url = f"https://places-api.foursquare.com/places/{fsq_id}/tips"
         tips_params = {"limit": 5, "sort": "POPULAR"}
 
-        tips_resp = requests.get(tips_url, headers=headers, params=tips_params, stream=True, timeout=4.0)
+        tips_resp = timed_http_call("foursquare", "tips", requests.get, tips_url, headers=headers, params=tips_params, stream=True, timeout=4.0)
         if tips_resp.status_code == 200:
             raw_tips = tips_resp.json()
             # The API returns a list of tip objects or an object with 'results'

@@ -18,6 +18,9 @@ from services.osm_service import fetch_osm_amenities_and_dietary
 from services.menu_service import fetch_dish_pricing_and_menu
 from services.ai_service import rank_restaurants_with_gemini
 from logger import get_logger
+from auth import require_user, verified_user_id
+from ownership import require_query_access, require_recommendation_access
+from observability import timed_http_call
 
 logger = get_logger("routers.search")
 
@@ -64,7 +67,7 @@ def _serialize_recommendation(r, query_id, location):
         open_now=r.open_now,
         website=r.website,
         reason=r.reason,
-        helpful_quote=r.helpful_quote,
+        evidence_summary=r.evidence_summary,
         lat=r.lat,
         lng=r.lng,
         helpful=r.helpful,
@@ -78,7 +81,12 @@ def _serialize_recommendation(r, query_id, location):
 router = APIRouter(prefix="/api", tags=["search"])
 
 @router.post("/search", response_model=List[RestaurantResult])
-def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
+def search_dish(
+    request: SearchRequest,
+    db: Session = Depends(get_db),
+    authenticated_uid: str = Depends(require_user),
+):
+    user_id = verified_user_id(authenticated_uid, request.user_id)
     dish = request.dish_name.strip()
     loc_str = request.location.strip()
 
@@ -87,7 +95,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
     if not loc_str:
         raise HTTPException(status_code=400, detail="location cannot be empty.")
 
-    logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', user_id='{request.user_id}', dietary={request.dietary_filters}, price={request.price_tier}, radius={request.max_distance_km}")
+    logger.info(f"Incoming search request: dish='{dish}', location='{loc_str}', dietary={request.dietary_filters}, price={request.price_tier}, radius={request.max_distance_km}")
 
     context, cache_key = search_context_and_key(request)
 
@@ -184,14 +192,13 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                 except Exception:
                     db.rollback()
 
-            if request.user_id:
-                try:
-                    history_entry = models.SearchHistory(user_id=request.user_id, query_id=existing_query.id)
-                    db.add(history_entry)
-                    db.commit()
-                except Exception as e:
-                    db.rollback()
-                    logger.warning(f"Could not record search history for cache hit: {e}")
+            try:
+                history_entry = models.SearchHistory(user_id=user_id, query_id=existing_query.id)
+                db.add(history_entry)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Could not record search history for cache hit: {e}")
 
             return [_serialize_recommendation(r, existing_query.id, loc_str) for r in existing_query.recommendations]
 
@@ -210,10 +217,9 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(db_query)
 
-            if request.user_id:
-                history_entry = models.SearchHistory(user_id=request.user_id, query_id=db_query.id)
-                db.add(history_entry)
-                db.commit()
+            history_entry = models.SearchHistory(user_id=user_id, query_id=db_query.id)
+            db.add(history_entry)
+            db.commit()
         except Exception as e:
             db.rollback()
             logger.error(f"Error persisting search query to DB: {e}", exc_info=True)
@@ -277,22 +283,6 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     text = r.get('text')
                     if text:
                         all_review_texts.append(text)
-                        try:
-                            exists = db.query(models.Review).filter(
-                                models.Review.place_id == place_id,
-                                models.Review.text == text
-                            ).first()
-                            if not exists:
-                                db.add(models.Review(
-                                    place_id=place_id,
-                                    source="google",
-                                    author_name=r.get('author_name', 'Google User'),
-                                    rating=float(r.get('rating', 0)),
-                                    text=text
-                                ))
-                                db.commit()
-                        except Exception:
-                            db.rollback()
 
                 # Yelp reviews & metadata
                 yelp_data = fetch_yelp_details_and_reviews(name, lat, lng)
@@ -307,22 +297,6 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                     y_text = yr.get("text")
                     if y_text:
                         all_review_texts.append(y_text)
-                        try:
-                            exists = db.query(models.Review).filter(
-                                models.Review.place_id == place_id,
-                                models.Review.text == y_text
-                            ).first()
-                            if not exists:
-                                db.add(models.Review(
-                                    place_id=place_id,
-                                    source="yelp",
-                                    author_name=yr.get("author_name", "Yelp User"),
-                                    rating=yr.get("rating", 0.0),
-                                    text=y_text
-                                ))
-                                db.commit()
-                        except Exception:
-                            db.rollback()
 
                 # Foursquare tips & metadata
                 fsq_data = fetch_foursquare_tips(name, lat, lng)
@@ -429,7 +403,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         open_now=r_data.get("open_now"),
                         website=r_data.get("website"),
                         reason=item.get("reason", "Highly recommended spot."),
-                        helpful_quote=item.get("helpful_quote"),
+                        evidence_summary=item.get("evidence_summary"),
                         lat=r_data["lat"],
                         lng=r_data["lng"],
                         photo_url=r_data.get("photo_url"),
@@ -459,7 +433,7 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
                         open_now=r_data.get("open_now"),
                         website=r_data.get("website"),
                         reason=item.get("reason", "Highly recommended spot."),
-                        helpful_quote=item.get("helpful_quote"),
+                        evidence_summary=item.get("evidence_summary"),
                         lat=r_data["lat"],
                         lng=r_data["lng"],
                         helpful=None,
@@ -480,12 +454,13 @@ def search_dish(request: SearchRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Search service encountered an unexpected error. Please try again.")
 
 @router.post("/feedback")
-def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db)):
+def submit_feedback(
+    request: FeedbackRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user),
+):
     try:
-        rec = db.query(models.Recommendation).filter(models.Recommendation.id == request.recommendation_id).first()
-        if not rec:
-            logger.warning(f"Feedback target recommendation {request.recommendation_id} not found.")
-            raise HTTPException(status_code=404, detail="Recommendation not found")
+        rec = require_recommendation_access(db, request.recommendation_id, user_id)
 
         rec.helpful = request.helpful
         db.commit()
@@ -499,12 +474,13 @@ def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Could not record feedback.")
 
 @router.get("/queries/{query_id}/recommendations", response_model=List[RestaurantResult])
-def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
+def get_query_recommendations(
+    query_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user),
+):
     try:
-        query = db.query(models.SearchQuery).filter(models.SearchQuery.id == query_id).first()
-        if not query:
-            logger.warning(f"Query recommendations target {query_id} not found.")
-            raise HTTPException(status_code=404, detail="Query not found")
+        query = require_query_access(db, query_id, user_id)
 
         # Repair saved searches created by the previous city-center fallback.
         coordinates = {(r.lat, r.lng) for r in query.recommendations}
@@ -526,7 +502,11 @@ def get_query_recommendations(query_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Could not retrieve recommendations.")
 
 @router.get("/dishes/trending", response_model=List[DishItem])
-def get_trending_dishes(limit: int = 8, db: Session = Depends(get_db)):
+def get_trending_dishes(
+    limit: int = 8,
+    db: Session = Depends(get_db),
+    _user_id: str = Depends(require_user),
+):
     """Fetch popular and trending dishes from the BiteRadar catalog."""
     try:
         dishes = db.query(models.Dish).order_by(
@@ -566,7 +546,7 @@ def get_place_photo(photo_reference: str):
             "photoreference": photo_reference,
             "key": GOOGLE_MAPS_API_KEY
         }
-        resp = requests.get(url, params=params, stream=True, timeout=10)
+        resp = timed_http_call("google", "place_photo", requests.get, url, params=params, stream=True, timeout=10)
         if resp.status_code != 200:
             logger.warning(f"Google photo proxy returned status {resp.status_code}")
             raise HTTPException(status_code=resp.status_code, detail="Could not load place photo.")
@@ -581,4 +561,3 @@ def get_place_photo(photo_reference: str):
     except Exception as e:
         logger.error(f"Error proxying place photo '{photo_reference}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch photo.")
-

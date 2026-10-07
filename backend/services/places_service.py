@@ -2,6 +2,7 @@ import math
 from typing import Optional, List, Dict, Any
 from config import gmaps
 from logger import get_logger
+from observability import provider_call
 
 logger = get_logger("places_service")
 
@@ -23,7 +24,8 @@ def geocode_location(location: str) -> Optional[Dict[str, float]]:
         logger.warning("Google Maps client is not initialized (missing API key).")
         return None
     try:
-        geocode_result = gmaps.geocode(location)
+        with provider_call("google", "geocode"):
+            geocode_result = gmaps.geocode(location)
         if not geocode_result or not geocode_result[0].get('geometry', {}).get('location'):
             logger.warning(f"Geocoding returned no valid results for location: '{location}'")
             return None
@@ -43,11 +45,12 @@ def search_candidate_restaurants(dish_name: str, location: str, lat: float, lng:
     try:
         query = f"restaurant serving {dish_name} in {location}" if location else f"restaurant serving {dish_name}"
         logger.info(f"Searching Google Places with query: '{query}' near ({lat}, {lng})")
-        places_result = gmaps.places(
-            query=query,
-            location=(lat, lng),
-            radius=5000
-        )
+        with provider_call("google", "places_search"):
+            places_result = gmaps.places(
+                query=query,
+                location=(lat, lng),
+                radius=5000
+            )
         raw_candidates = places_result.get('results', [])
         effective_max_dist = max_distance_km if (max_distance_km and max_distance_km > 0) else MAX_DISTANCE_KM
         candidates = []
@@ -77,21 +80,22 @@ def fetch_place_details(place_id: str) -> Dict[str, Any]:
     if not gmaps:
         return {}
     try:
-        details = gmaps.place(
-            place_id,
-            fields=[
-                'name',
-                'rating',
-                'user_ratings_total',
-                'reviews',
-                'geometry',
-                'price_level',
-                'editorial_summary',
-                'opening_hours',
-                'website',
-                'photo'
-            ]
-        )
+        with provider_call("google", "place_details"):
+            details = gmaps.place(
+                place_id,
+                fields=[
+                    'name',
+                    'rating',
+                    'user_ratings_total',
+                    'reviews',
+                    'geometry',
+                    'price_level',
+                    'editorial_summary',
+                    'opening_hours',
+                    'website',
+                    'photo'
+                ]
+            )
         return details.get('result', {})
     except Exception as e:
         logger.error(f"Error fetching place details for place_id '{place_id}': {e}", exc_info=True)
@@ -105,4 +109,3 @@ def get_photo_reference(place_data: Dict[str, Any]) -> Optional[str]:
         if isinstance(first, dict):
             return first.get('photo_reference')
     return None
-

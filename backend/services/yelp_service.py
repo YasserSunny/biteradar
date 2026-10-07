@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 import requests
 from config import YELP_API_KEY
 from logger import get_logger
+from observability import timed_http_call
 
 logger = get_logger("yelp_service")
 
@@ -22,9 +23,9 @@ def fetch_yelp_details_and_reviews(name: str, lat: float, lng: float) -> Dict[st
         search_url = "https://api.yelp.com/v3/businesses/search"
         params = {"term": name, "latitude": lat, "longitude": lng, "limit": 1}
         
-        resp = requests.get(search_url, headers=headers, params=params, timeout=5.0)
+        resp = timed_http_call("yelp", "business_search", requests.get, search_url, headers=headers, params=params, timeout=5.0)
         if resp.status_code != 200:
-            logger.warning(f"Yelp search failed for '{name}' (HTTP {resp.status_code}): {resp.text[:200]}")
+            logger.warning(f"Yelp search failed (HTTP {resp.status_code})")
             return result
 
         y_res = resp.json()
@@ -46,14 +47,14 @@ def fetch_yelp_details_and_reviews(name: str, lat: float, lng: float) -> Dict[st
         safe_yelp_id = yelp_id.replace('"', '\\"')
         query = '{ business(id: "' + safe_yelp_id + '") { price categories { title } reviews { text rating user { name } } } }'
         
-        gql_resp = requests.post(graphql_url, headers=gql_headers, data=query, timeout=5.0)
+        gql_resp = timed_http_call("yelp", "reviews", requests.post, graphql_url, headers=gql_headers, data=query, timeout=5.0)
         if gql_resp.status_code != 200:
             logger.warning(f"Yelp GraphQL failed for '{yelp_id}' (HTTP {gql_resp.status_code})")
             return result
 
         yr_res = gql_resp.json()
         if "errors" in yr_res:
-            logger.warning(f"Yelp GraphQL errors for '{yelp_id}': {yr_res['errors']}")
+            logger.warning("Yelp GraphQL returned an application error")
 
         business_data = yr_res.get("data", {}).get("business") or {}
         result["price"] = business_data.get("price")

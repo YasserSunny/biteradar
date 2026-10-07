@@ -74,6 +74,9 @@ class Recommendation(Base):
     open_now = Column(Boolean, nullable=True)
     website = Column(String, nullable=True)
     reason = Column(String)
+    evidence_summary = Column(String, nullable=True)
+    # Legacy provider quote storage. New code never reads or writes this field;
+    # the audited provider cleanup clears existing values.
     helpful_quote = Column(String, nullable=True)
     lat = Column(Float)
     lng = Column(Float)

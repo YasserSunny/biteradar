@@ -4,6 +4,8 @@
  * Keep browser requests on the frontend's origin. Next.js forwards /api to the
  * configured backend, so localhost refers to the server rather than a phone.
  */
+import { auth } from "@/firebase";
+
 export const API_BASE_URL = "";
 
 export class ApiError extends Error {
@@ -15,7 +17,12 @@ export class ApiError extends Error {
   }
 }
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const user = auth.currentUser;
+  if (!user) throw new ApiError("Please sign in to continue.", 401);
+  const token = await user.getIdToken();
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   const body = await response.json().catch(() => null);
   if (!response.ok)
     throw new ApiError(

@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 import models
 from database import get_db
 from main import app
+from observability import get_request_id, reset_request_id, set_request_id
 from routers import search_jobs as jobs
 
 task_dispatch = jobs.dispatch
@@ -60,6 +61,23 @@ def test_idempotency_conflict_and_validation(setup):
     assert submit(client, key, location='Atlanta')[0].status_code == 409
     assert submit(client, 'invalid')[0].status_code == 400
     assert submit(client, dish_name=' ')[0].status_code == 400
+
+
+def test_job_polling_is_bound_to_authenticated_owner(setup):
+    client, _, _ = setup
+    key = str(uuid4())
+    created = client.post(
+        '/api/search-jobs',
+        headers={'Idempotency-Key': key, 'X-Test-User': 'alice'},
+        json={'dish_name': 'Mango smoothie', 'location': 'Roswell'},
+    )
+    assert created.status_code == 202
+    assert client.get(
+        f'/api/search-jobs/{key}', headers={'X-Test-User': 'alice'}
+    ).status_code == 200
+    assert client.get(
+        f'/api/search-jobs/{key}', headers={'X-Test-User': 'bob'}
+    ).status_code == 403
 
 
 def test_result_survives_new_sessions_and_duplicate_worker_delivery(setup):
@@ -149,17 +167,40 @@ def test_cloud_task_dispatch_uses_named_task_oidc_and_worker_deadline(setup, mon
     monkeypatch.setenv('SEARCH_JOB_EXECUTOR', 'cloud_tasks')
     key = str(uuid4())
     queue = 'projects/backend/locations/europe-west1/queues/searches'
-    with patch.object(jobs, 'task_settings', return_value=(queue, 'https://worker.run.app', 'worker@example.com')), patch('google.auth.default', return_value=(object(), 'backend')), patch('google.auth.transport.requests.AuthorizedSession') as transport:
-        client = transport.return_value.__enter__.return_value
-        client.post.return_value.status_code = 409
-        task_dispatch(key)
+    request_id = str(uuid4())
+    context_token = set_request_id(request_id)
+    try:
+        with patch.object(jobs, 'task_settings', return_value=(queue, 'https://worker.run.app', 'worker@example.com')), patch('google.auth.default', return_value=(object(), 'backend')), patch('google.auth.transport.requests.AuthorizedSession') as transport:
+            client = transport.return_value.__enter__.return_value
+            client.post.return_value.status_code = 409
+            task_dispatch(key)
+    finally:
+        reset_request_id(context_token)
     url = client.post.call_args.args[0]
     task = client.post.call_args.kwargs['json']['task']
     assert url == f'https://cloudtasks.googleapis.com/v2/{queue}/tasks'
     assert task['name'].endswith('search-' + key)
     assert task['dispatchDeadline'] == '600s'
     assert task['httpRequest']['oidcToken']['audience'] == 'https://worker.run.app'
+    assert task['httpRequest']['headers']['X-Request-ID'] == request_id
     assert json.loads(base64.b64decode(task['httpRequest']['body'])) == {'job_id': key}
+
+
+def test_local_dispatch_copies_request_context(setup, monkeypatch):
+    class InlineExecutor:
+        def submit(self, function, *args):
+            function(*args)
+
+    request_id = str(uuid4())
+    observed = []
+    monkeypatch.setattr(jobs, 'local_workers', InlineExecutor())
+    context_token = set_request_id(request_id)
+    try:
+        with patch.object(jobs, 'run_job', side_effect=lambda _job_id: observed.append(get_request_id())):
+            task_dispatch(str(uuid4()))
+    finally:
+        reset_request_id(context_token)
+    assert observed == [request_id]
 
 
 def test_valid_worker_identity_runs_job(setup):

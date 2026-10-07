@@ -14,10 +14,15 @@ from schemas import (
     DishItem
 )
 from logger import get_logger
+from auth import require_user
 
 logger = get_logger("routers.analytics")
 
-router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+router = APIRouter(
+    prefix="/api/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(require_user)],
+)
 
 
 def _parse_json_list(val: Optional[str]) -> List[str]:

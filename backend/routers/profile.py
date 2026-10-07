@@ -7,13 +7,19 @@ from database import get_db
 import models
 from schemas import ProfileRequest, ProfileResponse, SearchHistoryItem
 from logger import get_logger
+from auth import require_user, verified_user_id
 
 logger = get_logger("routers.profile")
 
 router = APIRouter(prefix="/api", tags=["profile"])
 
 @router.get("/profile/{user_id}", response_model=ProfileResponse)
-def get_profile(user_id: str, db: Session = Depends(get_db)):
+def get_profile(
+    user_id: str,
+    db: Session = Depends(get_db),
+    authenticated_uid: str = Depends(require_user),
+):
+    user_id = verified_user_id(authenticated_uid, user_id)
     try:
         profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
         if not profile:
@@ -43,12 +49,17 @@ def get_profile(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Could not retrieve user profile.")
 
 @router.post("/profile", response_model=ProfileResponse)
-def save_profile(req: ProfileRequest, db: Session = Depends(get_db)):
+def save_profile(
+    req: ProfileRequest,
+    db: Session = Depends(get_db),
+    authenticated_uid: str = Depends(require_user),
+):
+    user_id = verified_user_id(authenticated_uid, req.user_id)
     try:
-        profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == req.user_id).first()
+        profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
         if not profile:
             profile = models.UserProfile(
-                user_id=req.user_id,
+                user_id=user_id,
                 name=req.name,
                 preferred_cuisines=json.dumps(req.preferred_cuisines),
                 favorite_dishes=json.dumps(req.favorite_dishes)
@@ -61,7 +72,7 @@ def save_profile(req: ProfileRequest, db: Session = Depends(get_db)):
 
         db.commit()
         db.refresh(profile)
-        logger.info(f"Saved profile preferences for user '{req.user_id}' ({req.name})")
+        logger.info("Saved profile preferences for authenticated user")
 
         return ProfileResponse(
             user_id=profile.user_id,
@@ -71,11 +82,16 @@ def save_profile(req: ProfileRequest, db: Session = Depends(get_db)):
         )
     except Exception as e:
         db.rollback()
-        logger.error(f"Error saving profile for user '{req.user_id}': {e}", exc_info=True)
+        logger.error(f"Error saving profile: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Could not save profile preferences.")
 
 @router.get("/history/{user_id}", response_model=List[SearchHistoryItem])
-def get_history(user_id: str, db: Session = Depends(get_db)):
+def get_history(
+    user_id: str,
+    db: Session = Depends(get_db),
+    authenticated_uid: str = Depends(require_user),
+):
+    user_id = verified_user_id(authenticated_uid, user_id)
     try:
         histories = db.query(models.SearchHistory).filter(
             models.SearchHistory.user_id == user_id

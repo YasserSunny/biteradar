@@ -8,6 +8,8 @@ import models
 from schemas import ChatRequest, ChatResponse
 from services.ai_service import answer_dish_chat
 from logger import get_logger
+from auth import require_user
+from ownership import require_query_access
 
 logger = get_logger("routers.chat")
 
@@ -23,7 +25,11 @@ def _parse_json_list(val: Optional[str]) -> List[str]:
 router = APIRouter(prefix="/api", tags=["chat"])
 
 @router.post("/chat", response_model=ChatResponse)
-def dish_chat(request: ChatRequest, db: Session = Depends(get_db)):
+def dish_chat(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user),
+):
     """
     Interactive AI Dish Concierge: Answers follow-up questions about the recommended spots
     (e.g., comparing prices, inquiring about dietary options, patio seating, reservation advice)
@@ -33,10 +39,7 @@ def dish_chat(request: ChatRequest, db: Session = Depends(get_db)):
     if not user_msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    query = db.query(models.SearchQuery).filter(models.SearchQuery.id == request.query_id).first()
-    if not query:
-        logger.warning(f"Chat request received for nonexistent query_id {request.query_id}")
-        raise HTTPException(status_code=404, detail="Search query session not found.")
+    query = require_query_access(db, request.query_id, user_id)
 
     recs_data = []
     for r in query.recommendations:
@@ -50,7 +53,7 @@ def dish_chat(request: ChatRequest, db: Session = Depends(get_db)):
             "amenities": _parse_json_list(r.amenities),
             "summary": r.summary,
             "reason": r.reason,
-            "helpful_quote": r.helpful_quote
+            "evidence_summary": r.evidence_summary
         })
 
     logger.info(f"Processing chat for query_id={request.query_id} ('{query.dish_name}' in '{query.location}') with {len(recs_data)} recommendations")

@@ -20,6 +20,7 @@ def test_saved_overlapping_coordinates_are_repaired(context_client):
     query = seed(session, {'dish_name': 'Ramen', 'location': 'New York'}, legacy=True)
     import models
     session.add(models.Recommendation(query_id=query.id, place_id='two', name='Second spot', rating=4, total_reviews=10, reason='Great noodles', lat=40.7, lng=-74))
+    session.add(models.SearchHistory(user_id='test-user', query_id=query.id))
     session.commit()
     with patch('routers.search.gmaps', MagicMock()), patch('routers.search.fetch_place_details', side_effect=[{'geometry': {'location': {'lat': 40.71, 'lng': -74.01}}}, {'geometry': {'location': {'lat': 40.72, 'lng': -74.02}}}]):
         response = client.get(f'/api/queries/{query.id}/recommendations')

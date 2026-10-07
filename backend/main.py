@@ -1,5 +1,6 @@
 import os
 import time
+from uuid import UUID, uuid4
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,6 +9,7 @@ import models
 from database import engine, run_database_migrations
 from routers import search, profile, chat, analytics, search_jobs
 from logger import get_logger
+from observability import reset_request_id, set_request_id
 
 logger = get_logger("app")
 
@@ -38,6 +40,13 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.perf_counter()
+    supplied_request_id = request.headers.get("X-Request-ID", "")
+    try:
+        request_id = str(UUID(supplied_request_id))
+    except (ValueError, AttributeError):
+        request_id = str(uuid4())
+    context_token = set_request_id(request_id)
+    request.state.request_id = request_id
     client_host = request.client.host if request.client else "unknown"
     method = request.method
     path = request.url.path
@@ -46,11 +55,14 @@ async def log_requests(request: Request, call_next):
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(f"{method} {path} [{client_host}] -> {response.status_code} ({duration_ms:.1f}ms)")
+        response.headers["X-Request-ID"] = request_id
         return response
     except Exception as e:
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.error(f"{method} {path} [{client_host}] FAILED after {duration_ms:.1f}ms with error: {e}", exc_info=True)
         raise
+    finally:
+        reset_request_id(context_token)
 
 # Global exception handlers to prevent app crashes & provide clean error JSON
 @app.exception_handler(HTTPException)
@@ -58,7 +70,8 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     logger.warning(f"HTTPException on {request.method} {request.url.path}: {exc.status_code} - {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail, "status_code": exc.status_code}
+        content={"detail": exc.detail, "status_code": exc.status_code},
+        headers={"X-Request-ID": getattr(request.state, "request_id", str(uuid4()))},
     )
 
 @app.exception_handler(Exception)
@@ -69,7 +82,8 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
         content={
             "detail": "An unexpected server error occurred. Please try again later.",
             "status_code": 500
-        }
+        },
+        headers={"X-Request-ID": getattr(request.state, "request_id", str(uuid4()))},
     )
 
 # Register route modules

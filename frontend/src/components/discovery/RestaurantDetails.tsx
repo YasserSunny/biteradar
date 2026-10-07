@@ -48,10 +48,11 @@ export function RestaurantDetails({
         </span>
         <p>{r.reason}</p>
       </div>
-      {r.helpful_quote && (
-        <blockquote>
-          “{r.helpful_quote}”<cite>A diner’s perspective</cite>
-        </blockquote>
+      {r.evidence_summary && (
+        <div className="detail-reason">
+          <span className="eyebrow">AI SUMMARY OF REVIEW SIGNALS</span>
+          <p>{r.evidence_summary}</p>
+        </div>
       )}
       {r.summary && <p className="muted">{r.summary}</p>}
       <div className="chips">

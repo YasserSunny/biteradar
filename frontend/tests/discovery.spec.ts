@@ -14,7 +14,8 @@ const restaurants = [
       "Diners love the deeply savory broth and springy handmade noodles. A comforting bowl with a memorable finish.",
     dish_price: "~$16 – $22",
     open_now: true,
-    helpful_quote: "The broth is the reason we keep coming back.",
+    evidence_summary:
+      "Diners consistently highlight the savory broth and handmade noodles.",
     dietary_tags: ["Vegan options"],
     amenities: ["Outdoor seating"],
     website: "https://example.com/menu",
@@ -82,6 +83,7 @@ async function fixtures(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS")
       return route.fulfill({ status: 204 });
+    expect(route.request().headers()["authorization"]).toBe(`Bearer ${token}`);
     if (path === "/api/search-jobs") {
       searches.push(route.request().postDataJSON());
       return route.fulfill({ json: completedJob(restaurants) });
