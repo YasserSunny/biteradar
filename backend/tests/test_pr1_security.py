@@ -111,7 +111,7 @@ def test_redaction_filter_removes_tokens_keys_and_notes(monkeypatch):
     redactor = RedactingFilter()
     record = logging.LogRecord(
         "test", logging.INFO, __file__, 1,
-        "Authorization: Bearer abc.def.ghi key=%s notes=private preference", 
+        "Authorization: Bearer abc.def.ghi key=%s notes=private preference",
         ("super-secret-provider-key",), None,
     )
     assert redactor.filter(record)
@@ -139,6 +139,7 @@ def test_provider_review_cleanup_dry_run_execute_and_idempotency(tmp_path: Path)
         assert "text" not in str(dry_run)
 
         audit = tmp_path / "audit.json"
+        purge_reviews(db, audit_file=audit)
         result = purge_reviews(
             db,
             execute=True,
@@ -148,4 +149,22 @@ def test_provider_review_cleanup_dry_run_execute_and_idempotency(tmp_path: Path)
         assert result["deleted_rows"] == 2
         assert db.query(models.Review).one().source == "foursquare"
         assert "google text" not in audit.read_text()
+        purge_reviews(db, audit_file=audit)
         assert purge_reviews(db, execute=True, audit_file=audit)["deleted_rows"] == 0
+
+
+def test_provider_review_cleanup_rejects_stale_audit(tmp_path: Path):
+    engine = create_engine("sqlite://")
+    models.Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine)
+    with sessions() as db:
+        db.add(models.Place(id="p1", name="Place", lat=1, lng=2))
+        db.add(models.Review(place_id="p1", source="google", text="first"))
+        db.commit()
+        audit = tmp_path / "audit.json"
+        purge_reviews(db, audit_file=audit)
+        db.add(models.Review(place_id="p1", source="yelp", text="new row"))
+        db.commit()
+        with pytest.raises(ValueError, match="no longer matches"):
+            purge_reviews(db, execute=True, audit_file=audit)
+        assert db.query(models.Review).count() == 2

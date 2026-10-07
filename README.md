@@ -41,25 +41,30 @@ Biteradar is an AI-powered restaurant discovery web application designed to help
 
 ### Prerequisites
 - Node.js & npm
-- Python 3.9+
+- Python 3.12
 - A Google Cloud Project with the Maps API and Generative Language API enabled.
 - A Firebase Project for authentication.
 
 ### 1. Backend Setup
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync --frozen
 ```
 Create a `.env` file in the `backend/` directory:
 ```env
 GOOGLE_MAPS_API_KEY="your_maps_api_key_here"
 GEMINI_API_KEY="your_gemini_api_key_here"
+FIREBASE_PROJECT_ID="your_firebase_project_id"
 ```
+Firebase Admin validates browser ID tokens using Application Default
+Credentials (ADC). For local development, run `gcloud auth
+application-default login` with access to the Firebase project. Cloud Run uses
+its attached service account; never download or commit a service-account JSON
+file.
+
 Start the backend server:
 ```bash
-uvicorn main:app --reload --port 8000
+uv run uvicorn main:app --reload --port 8000
 ```
 
 ### 2. Frontend Setup
@@ -83,6 +88,51 @@ npm run dev -- --webpack
 ```
 
 Navigate to `http://localhost:3000` to log in and start searching!
+
+### Verification
+
+Run the same checks used by GitHub Actions:
+
+```bash
+cd backend && uv sync --frozen && uv run pytest -q
+cd ../frontend && npm ci
+npm run lint && npm run typecheck && npm run format:check && npm run build
+npx playwright install chrome && npm run test:e2e
+```
+
+Every user-facing API route requires a Firebase bearer token except `/health`
+and `/api/places/photo/*`. The Cloud Tasks worker keeps its separate OIDC
+identity check. Responses include `X-Request-ID`; clients may send a UUID in
+that header to correlate a request.
+
+### Provider review retention cleanup
+
+Google and Yelp review text is used transiently during a live ranking request
+and is not stored. After deploying this version, inspect the cleanup without
+changing data:
+
+```bash
+cd backend
+uv run python -m maintenance.purge_provider_reviews \
+  --audit-file ./provider-review-purge-audit.json
+```
+
+Inspect and securely retain that text-free audit. Then run the deletion manually
+against the same resolved production `DATABASE_URL`; execution stops if the
+database counts no longer match the confirmed audit:
+
+```bash
+uv run python -m maintenance.purge_provider_reviews \
+  --execute --audit-file ./provider-review-purge-audit.json
+```
+
+The audit contains only source, place ID, counts, and deletion time. Keep it in
+your secure operations records and do not commit it. Foursquare rows are not
+changed pending a separate retention-rights review. Provider telemetry emits
+`provider`, `operation`, `duration_ms`, `status`, `category`, `timeout`,
+`quota_response`, and `request_id`; these are the fields to use for quota and
+cost alerts in the dashboard PR. If the old Yelp key prefix appeared in any
+deployed logs, rotate that key before rollout.
 
 ### Testing from a phone
 

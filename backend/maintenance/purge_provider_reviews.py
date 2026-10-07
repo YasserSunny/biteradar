@@ -53,10 +53,23 @@ def purge_reviews(
         "rows": rows,
     }
     if not execute:
+        if audit_file is not None:
+            audit_file.parent.mkdir(parents=True, exist_ok=True)
+            audit_file.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         return report
     if audit_file is None:
         raise ValueError("An audit file is required when executing the purge.")
-    audit_file.parent.mkdir(parents=True, exist_ok=True)
+    if not audit_file.exists():
+        raise ValueError("Run a dry-run audit export before executing the purge.")
+    prior_audit = json.loads(audit_file.read_text(encoding="utf-8"))
+    if (
+        prior_audit.get("dry_run") is not True
+        or prior_audit.get("sources") != list(PURGE_SOURCES)
+        or prior_audit.get("total_rows") != report["total_rows"]
+        or prior_audit.get("rows") != report["rows"]
+    ):
+        raise ValueError("The database no longer matches the confirmed dry-run audit.")
+    report["status"] = "deleting"
     audit_file.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     try:
         deleted = db.query(models.Review).filter(
@@ -70,19 +83,23 @@ def purge_reviews(
         db.commit()
     except Exception:
         db.rollback()
+        report["status"] = "rolled_back"
+        audit_file.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         raise
     report["deleted_rows"] = deleted
     report["remaining_rows"] = remaining
     report["verified_remaining_rows"] = db.query(models.Review).filter(
         models.Review.source.in_(PURGE_SOURCES)
     ).count()
+    report["status"] = "completed"
+    audit_file.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true", help="perform the deletion")
-    parser.add_argument("--audit-file", type=Path, help="required JSON audit destination for --execute")
+    parser.add_argument("--audit-file", type=Path, help="JSON audit export path")
     args = parser.parse_args(argv)
     if args.execute and not args.audit_file:
         parser.error("--audit-file is required with --execute")
